@@ -1,0 +1,140 @@
+/* src/skins/ClassicHandheld/ClassicHandheld-purple.module.css */
+
+.container {
+  position: relative;
+  width: 100%;
+  max-width: 675px;
+  aspect-ratio: 675 / 526;
+  background-color: #4F2C84; /* Purple */
+  border-top-left-radius: 20px;
+  border-top-right-radius: 7px;
+  border-bottom-left-radius: 7px;
+  border-bottom-right-radius: 75px;
+  box-shadow:
+    inset 6px 6px 4px 0 rgba(255, 255, 255, 0.1), /* Purple Spec */
+    inset -6px -6px 4px 0 rgba(0, 0, 0, 0.06); /* Purple Spec */
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+.gameArea {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  top: 17.11%;
+  left: 9.63%;
+  width: 80.74%;
+  aspect-ratio: 545 / 268;
+  z-index: 2;
+  overflow: hidden;
+  background-color: #080817;
+}
+
+.screenTrimFrame {
+  position: absolute;
+  top: 14.26%;
+  left: 3.7%;
+  z-index: 1;
+  width: 92.59%;
+  height: 56.65%;
+  background-color: #2F2F2F; /* Purple Spec */
+  border: 2px solid #1E1E1E; /* Purple Spec */
+  border-radius: 15px 15px 40px 15px;
+}
+
+.title {
+  position: absolute;
+  top: 2.28%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #FFFFFF; /* Purple Spec */
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+  white-space: nowrap;
+}
+
+.subtitle {
+  position: absolute;
+  top: 73.76%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 0.9rem;
+  color: #E0E0E0; /* Purple Spec */
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+  white-space: nowrap;
+}
+
+.accents, .dpad, .selectStart, .baButtons {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.accents {
+  width: 99.85%;
+  height: 10.07%;
+  top: 0;
+  right: 0;
+}
+
+.dpad {
+  width: 16%;
+  height: 20.53%;
+  left: 5.18%;
+  top: 73.76%;
+}
+
+.selectStart {
+  width: 14.07%;
+  height: 5.13%;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 4.75%;
+}
+
+.baButtons {
+  width: 18.96%;
+  height: 22.81%;
+  top: 73.76%;
+  right: 4.59%;
+}
+
+.exitButton, .muteButton {
+  position: absolute;
+  z-index: 3;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 4.88%;
+  height: 6.27%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exitButton:hover, .muteButton:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exitButton {
+  top: 1.33%;
+  right: 1.63%;
+}
+
+.muteButton {
+  top: 1.33%;
+  right: 9.92%;
+}
+
+.exitButton img, .muteButton img {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}

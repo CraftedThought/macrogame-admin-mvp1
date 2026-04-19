@@ -1,0 +1,167 @@
+/* src/skins/ClassicHandheld/ClassicHandheld.module.css */
+
+.container {
+  position: relative;
+  width: 100%;
+  max-width: 675px; /* Original width is now the max */
+  aspect-ratio: 675 / 526; /* Enforce the shape */
+  background-color: #BCBDC2;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 7px;
+  border-bottom-left-radius: 7px;
+  border-bottom-right-radius: 75px;
+  box-shadow:
+    inset 6px 6px 4px 0 rgba(255, 255, 255, 0.25),
+    inset -6px -6px 4px 0 rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  margin: 0 auto; /* Center the container */
+}
+
+.gameArea {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* (90 / 526) * 100 = 17.11% */
+  top: 17.11%;
+  /* (65 / 675) * 100 = 9.63% */
+  left: 9.63%;
+  /* (545 / 675) * 100 = 80.74% */
+  width: 80.74%;
+  aspect-ratio: 545 / 268; /* Enforce shape instead of fixed height */
+  z-index: 2;
+  overflow: hidden;
+  background-color: #080817;
+}
+
+.screenTrimFrame {
+  position: absolute;
+  /* (75 / 526) * 100 = 14.26% */
+  top: 14.26%;
+  /* (25 / 675) * 100 = 3.7% */
+  left: 3.7%;
+  z-index: 1;
+  /* (625 / 675) * 100 = 92.59% */
+  width: 92.59%;
+  /* (298 / 526) * 100 = 56.65% */
+  height: 56.65%;
+  background-color: #5E6A78;
+  border: 2px solid #455362;
+  border-radius: 15px 15px 40px 15px;
+}
+
+.title {
+  position: absolute;
+  /* (12 / 526) * 100 = 2.28% */
+  top: 2.28%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #333;
+  text-shadow: 1px 1px 2px rgba(255,255,255,0.5);
+  white-space: nowrap; /* Prevent title from wrapping on resize */
+}
+
+.subtitle {
+  position: absolute;
+  /* (388 / 526) * 100 = 73.76% */
+  top: 73.76%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 0.9rem;
+  color: #444;
+  white-space: nowrap; /* Prevent subtitle from wrapping */
+}
+
+.accents, .dpad, .selectStart, .baButtons {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.accents {
+  /* (674 / 675) * 100 = 99.85% */
+  width: 99.85%;
+  /* (53 / 526) * 100 = 10.07% */
+  height: 10.07%;
+  top: 0;
+  right: 0;
+}
+
+.dpad {
+  /* (108 / 675) * 100 = 16% */
+  width: 16%;
+  /* (108 / 526) * 100 = 20.53% */
+  height: 20.53%;
+  /* (35 / 675) * 100 = 5.18% */
+  left: 5.18%;
+  /* (388 / 526) * 100 = 73.76% */
+  top: 73.76%;
+}
+
+.selectStart {
+  /* (95 / 675) * 100 = 14.07% */
+  width: 14.07%;
+  /* (27 / 526) * 100 = 5.13% */
+  height: 5.13%;
+  left: 50%;
+  transform: translateX(-50%);
+  /* (25 / 526) * 100 = 4.75% */
+  bottom: 4.75%;
+}
+
+.baButtons {
+  /* (128 / 675) * 100 = 18.96% */
+  width: 18.96%;
+  /* (120 / 526) * 100 = 22.81% */
+  height: 22.81%;
+  /* (388 / 526) * 100 = 73.76% */
+  top: 73.76%;
+  /* (31 / 675) * 100 = 4.59% */
+  right: 4.59%;
+}
+
+.exitButton, .muteButton {
+  position: absolute;
+  z-index: 3;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  /* (33 / 675) * 100 = 4.88% */
+  width: 4.88%;
+  /* (33 / 526) * 100 = 6.27% */
+  height: 6.27%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exitButton:hover, .muteButton:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.exitButton {
+  /* (7 / 526) * 100 = 1.33% */
+  top: 1.33%;
+  /* (11 / 675) * 100 = 1.63% */
+  right: 1.63%;
+}
+
+.muteButton {
+  /* (7 / 526) * 100 = 1.33% */
+  top: 1.33%;
+  /* (67 / 675) * 100 = 9.92% */
+  right: 9.92%;
+}
+
+.exitButton img, .muteButton img {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}

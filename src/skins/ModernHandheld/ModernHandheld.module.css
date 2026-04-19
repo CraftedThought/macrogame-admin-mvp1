@@ -1,0 +1,118 @@
+/* src/skins/ModernHandheld/ModernHandheld.module.css */
+
+.container {
+  position: relative;
+  width: 100%;
+  max-width: 625px; /* Original width is now the max */
+  aspect-ratio: 625 / 500; /* Enforce the shape */
+  background-color: #161616;
+  border-radius: 10px;
+  box-shadow:
+    inset 6px 6px 4px rgba(255, 255, 255, 0.1),
+    inset -6px -6px 4px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+.gameArea {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  top: 15.4%;    /* 77px / 500px */
+  left: 6.4%;     /* 40px / 625px */
+  width: 87.2%;   /* 545px / 625px */
+  aspect-ratio: 545 / 268;
+  z-index: 2;
+  overflow: hidden;
+  background-color: #080817;
+}
+
+.screenTrimFrame {
+  position: absolute;
+  top: 13.4%;    /* 67px / 500px */
+  left: 4.8%;     /* 30px / 625px */
+  width: 90.4%;   /* 565px / 625px */
+  height: 57.6%;  /* 288px / 500px */
+  background-color: #424242;
+  border: 2px solid #585858;
+  border-radius: 5px;
+  z-index: 1;
+}
+
+.title {
+  position: absolute;
+  top: 2.4%;      /* 12px / 500px */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  white-space: nowrap;
+}
+
+.subtitle {
+  position: absolute;
+  top: 74%;       /* 370px / 500px */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 1rem;
+  color: #CCCCCC;
+  white-space: nowrap;
+}
+
+.dpad, .selectStart, .buttons {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.dpad {
+  width: 17.28%;  /* 108px / 625px */
+  height: 21.6%;  /* 108px / 500px */
+  left: 6.4%;     /* 40px / 625px */
+  top: 74%;       /* 370px / 500px */
+}
+
+.selectStart {
+  width: 15.2%;   /* 95px / 625px */
+  height: 2%;     /* 10px / 500px */
+  left: 50%;
+  transform: translateX(-50%);
+  top: 92%;       /* 460px / 500px */
+}
+
+.buttons {
+  width: 17.28%;  /* 108px / 625px */
+  height: 21.6%;  /* 108px / 500px */
+  right: 6.4%;    /* 40px / 625px */
+  top: 74%;       /* 370px / 500px */
+}
+
+.exitButton, .muteButton {
+  position: absolute;
+  z-index: 3;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 5.28%;   /* 33px / 625px */
+  height: 6.6%;   /* 33px / 500px */
+  border-radius: 50%;
+}
+
+.exitButton:hover, .muteButton:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exitButton {
+  top: 1.4%;      /* 7px / 500px */
+  right: 1.76%;   /* 11px / 625px */
+}
+
+.muteButton {
+  top: 1.4%;      /* 7px / 500px */
+  right: 8.32%;   /* 52px / 625px */
+}

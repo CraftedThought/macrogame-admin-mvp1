@@ -1,0 +1,101 @@
+/* src/skins/Tablet/Tablet.module.css */
+
+.container {
+  position: relative;
+  width: 100%;
+  max-width: 625px; /* Original width is now the max */
+  aspect-ratio: 625 / 368; /* Enforce the shape */
+  background-color: #FFFFFF;
+  border: 3px solid #D5D5D5;
+  border-radius: 20px;
+  box-shadow:
+    inset 6px 6px 4px rgba(255, 255, 255, 0.2),
+    inset -6px -6px 4px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+}
+
+.gameArea {
+  position: relative; /* Changed from absolute for centering */
+  width: 87.2%; /* 545px / 625px */
+  aspect-ratio: 545 / 268; /* Enforce shape instead of fixed height */
+  z-index: 1;
+  overflow: hidden;
+  background-color: #080817;
+}
+
+.title {
+  position: absolute;
+  top: 3.26%; /* 12px / 368px */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #000000;
+  white-space: nowrap;
+}
+
+.subtitle {
+  position: absolute;
+  bottom: 2.71%; /* 10px / 368px */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 0.9rem;
+  color: #333333;
+  white-space: nowrap;
+}
+
+.cameraLens {
+  position: absolute;
+  left: 2.4%;  /* 15px / 625px */
+  width: 1.6%;   /* 10px / 625px */
+  height: 2.71%; /* 10px / 368px */
+}
+
+.homeButton {
+  position: absolute;
+  right: 1.6%;   /* 10px / 625px */
+  width: 3.52%;  /* 22px / 625px */
+  height: 5.98%; /* 22px / 368px */
+  background-color: #FFFFFF;
+  border: 1.5px solid #C9C9C9;
+  border-radius: 50%;
+}
+
+.exitButton, .muteButton {
+  position: absolute;
+  z-index: 2;
+  padding: 0;
+  border: none;
+  background-color: #EFEFEF;
+  cursor: pointer;
+  width: 3.84%;  /* 24px / 625px */
+  height: 6.52%; /* 24px / 368px */
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exitButton:hover, .muteButton:hover {
+  background-color: #E0E0E0;
+}
+
+.exitButton {
+  top: 2.71%;   /* 10px / 368px */
+  right: 1.6%;  /* 10px / 625px */
+}
+
+.muteButton {
+  top: 2.71%;   /* 10px / 368px */
+  right: 6.72%; /* 42px / 625px */
+}
+
+.exitButton img, .muteButton img {
+  width: 65%;
+  height: 65%;
+}

@@ -1,0 +1,47 @@
+/*
+  This file provides the essential global styles and resets
+  to ensure the application behaves predictably across browsers.
+*/
+
+/* 1. A modern CSS reset to remove default browser styling */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+/* 2. Set core body defaults */
+body {
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 3. Make images and media easier to work with */
+img, picture, video, canvas, svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* 4. Remove built-in form typography styles */
+input, button, textarea, select {
+  font: inherit;
+}
+
+/* 5. THE CRITICAL FIX: Ensure the root container and all parent elements
+      take up the full height and width of the browser window. This is
+      what solves the constrained width problem.
+*/
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+/*
+  6. Performance optimization: Disable transitions during browser resize
+     to prevent lag and improve responsiveness of UI interactions.
+*/
+.is-resizing * {
+  transition: none !important;
+}

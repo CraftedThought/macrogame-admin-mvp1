@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    // --- Basic Options ---
+    "target": "ES2020",         // Compile to modern JavaScript for better performance
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"], // Standard libraries to include
+    "module": "ESNext",        // Use modern module syntax
+
+    // --- Strictness & Quality ---
+    "strict": true,            // Enforce all strict type-checking options
+    "noImplicitAny": true,     // Raise error on expressions and declarations with an implied 'any' type
+    "noUnusedLocals": true,    // Report errors on unused local variables
+    "noUnusedParameters": true,// Report errors on unused parameters
+    "noFallthroughCasesInSwitch": true,
+
+    // --- Module Resolution ---
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true, // Allows default imports from modules with no default export
+    "resolveJsonModule": true, // Allows importing JSON files
+    "isolatedModules": true,   // Ensure each file can be safely compiled in isolation
+
+    // --- React Specific ---
+    "jsx": "react-jsx",        // Use the new JSX transform
+    "noEmit": true             // Vite handles the transpilation, so TypeScript doesn't need to output files
+  },
+  "include": ["src"],          // Only check files inside the 'src' directory
+  "references": [{ "path": "./tsconfig.node.json" }] // Reference Vite-specific config
+}

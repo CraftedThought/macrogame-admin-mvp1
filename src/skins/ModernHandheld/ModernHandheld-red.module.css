@@ -1,0 +1,118 @@
+/* src/skins/ModernHandheld/ModernHandheld-red.module.css */
+
+.container {
+  position: relative;
+  width: 100%;
+  max-width: 625px;
+  aspect-ratio: 625 / 500;
+  background-color: #791616; /* Red */
+  border-radius: 10px;
+  box-shadow:
+    inset 6px 6px 4px rgba(255, 255, 255, 0.1), /* Red Spec */
+    inset -6px -6px 4px rgba(0, 0, 0, 0.1); /* Red Spec */
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+.gameArea {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  top: 15.4%;
+  left: 6.4%;
+  width: 87.2%;
+  aspect-ratio: 545 / 268;
+  z-index: 2;
+  overflow: hidden;
+  background-color: #080817;
+}
+
+.screenTrimFrame {
+  position: absolute;
+  top: 13.4%;
+  left: 4.8%;
+  width: 90.4%;
+  height: 57.6%;
+  background-color: #1B1B1B; /* Red Spec */
+  border: 2px solid #363636; /* Red Spec */
+  border-radius: 5px;
+  z-index: 1;
+}
+
+.title {
+  position: absolute;
+  top: 2.4%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  white-space: nowrap;
+}
+
+.subtitle {
+  position: absolute;
+  top: 74%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 1rem;
+  color: #E0E0E0;
+  white-space: nowrap;
+}
+
+.dpad, .selectStart, .buttons {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.dpad {
+  width: 17.28%;
+  height: 21.6%;
+  left: 6.4%;
+  top: 74%;
+}
+
+.selectStart {
+  width: 15.2%;
+  height: 2%;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 92%;
+}
+
+.buttons {
+  width: 17.28%;
+  height: 21.6%;
+  right: 6.4%;
+  top: 74%;
+}
+
+.exitButton, .muteButton {
+  position: absolute;
+  z-index: 3;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 5.28%;
+  height: 6.6%;
+  border-radius: 50%;
+}
+
+.exitButton:hover, .muteButton:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.exitButton {
+  top: 1.4%;
+  right: 1.76%;
+}
+
+.muteButton {
+  top: 1.4%;
+  right: 8.32%;
+}
