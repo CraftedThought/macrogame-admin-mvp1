@@ -99,13 +99,29 @@ export const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({ initialHtml,
         }
     }, []);
 
-    const getContrastYIQ = (hexcolor: string) => {
-        if (!hexcolor) return 'black';
-        hexcolor = hexcolor.replace("#", "");
-        const r = parseInt(hexcolor.substr(0,2),16);
-        const g = parseInt(hexcolor.substr(2,2),16);
-        const b = parseInt(hexcolor.substr(4,2),16);
-        const yiq = ((r*299)+(g*587)+(b*114))/1000;
+    const getContrastYIQ = (colorStr: string) => {
+        if (!colorStr || colorStr === 'transparent') return 'black'; // Fallback for bright environments
+        
+        let r = 255, g = 255, b = 255; // Default to white assumptions
+
+        if (colorStr.startsWith('#')) {
+            let hex = colorStr.replace("#", "");
+            if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+            r = parseInt(hex.substring(0, 2), 16) || 255;
+            g = parseInt(hex.substring(2, 4), 16) || 255;
+            b = parseInt(hex.substring(4, 6), 16) || 255;
+        } else if (colorStr.startsWith('rgb')) {
+            const vals = colorStr.match(/\d+(\.\d+)?/g);
+            if (vals && vals.length >= 3) {
+                r = parseInt(vals[0], 10);
+                g = parseInt(vals[1], 10);
+                b = parseInt(vals[2], 10);
+                // If it's highly transparent rgba, default to assuming a white background context
+                if (vals[3] && parseFloat(vals[3]) < 0.5) return 'black'; 
+            }
+        }
+
+        const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
         return (yiq >= 128) ? 'black' : 'white';
     }
 

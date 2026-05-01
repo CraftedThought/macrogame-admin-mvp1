@@ -10,7 +10,8 @@ import { UnifiedGameChrome } from '../ui/UnifiedGameChrome';
 import { MicrogameResultOverlay } from '../ui/MicrogameResultOverlay';
 import { ConversionScreenHost } from '../conversions/ConversionScreenHost';
 import { AutoTransitionOverlay } from '../ui/TransitionRenderer';
-import { parseGameMergeTags } from '../../utils/helpers';
+import { parseGameMergeTags, hydrateMacrogame, getEffectiveTargetCost, getTargetRewardName, getResolvedTargetInstanceId } from '../../utils/helpers';
+import { DEFAULT_MACROGAME_STATE } from '../../constants/defaultMacrogameState';
 import { TransitionRenderer, LiveCountdown } from '../builders/macrogame/TransitionRenderer';
 import { styles } from '../../App.styles';
 import 'react-quill-new/dist/quill.snow.css';
@@ -22,7 +23,7 @@ const ORIENTATIONS = {
 };
 
 // --- CSS for Text Editor Previews ---
-const quillCssBlock = `
+export const quillCssBlock = `
     /* Force reset padding and margins for Quill editor */
     .link-content-wrapper.ql-editor {
         height: auto !important;
@@ -57,12 +58,13 @@ const quillCssBlock = `
     
     /* List Handling - Critical for Live Preview */
     .link-content-wrapper.ql-editor ul, .link-content-wrapper.ql-editor ol { 
-        padding-left: 0 !important; 
+        padding-left: 1.5em !important; /* Give bullets room to breathe */
         margin-left: 0 !important; 
-        list-style-position: inside !important;
-        text-align: left; /* Lists usually look best left-aligned even on centered screens */
-        display: inline-block; /* Allows list to sit inside centered container nicely */
+        list-style-position: outside !important; /* Prevents numbers from getting clipped by flexbox centers */
+        text-align: left; 
+        display: inline-block; 
         width: 100%;
+        box-sizing: border-box;
     }
     .link-content-wrapper.ql-editor li { padding: 0 !important; margin: 0 !important; }
     
@@ -81,7 +83,7 @@ const quillCssBlock = `
 `;
 
 // --- Shared Canvas Renderer for Intro & Promo Screens ---
-const CanvasScreenRenderer: React.FC<{
+export const CanvasScreenRenderer: React.FC<{
     config: any;
     isLightMode: boolean;
     textStyles: React.CSSProperties;
@@ -107,11 +109,14 @@ const CanvasScreenRenderer: React.FC<{
     const isButton = !isAuto && interactionMethod === 'click' && clickFormat === 'button';
     const canClickAnywhere = !isAuto && !isButton;
 
-    // Merge the base styles (which hold the layout properties) with the light styles (which override the colors)
-    const activeStyle = { 
-        ...(config.style || {}), 
-        ...(isLightMode ? (config.lightStyle || {}) : {}) 
-    };
+    // Correctly separate style logic so colors don't bleed from dark to light
+    const baseStyle = config.style || {};
+    const lightStyle = config.lightStyle || {};
+    const activeStyle = { ...baseStyle, ...(isLightMode ? lightStyle : {}) };
+
+    // Safely resolve colors specifically based on mode to prevent bleeding
+    const bgColor = isLightMode ? (lightStyle.backgroundColor || '#ffffff') : (baseStyle.backgroundColor || '#1a1a2e');
+    const txtColor = isLightMode ? (lightStyle.textColor || '#333333') : (baseStyle.textColor || '#ffffff');
     
     const vAlign = activeStyle.verticalAlign || 'center';
     const justifyMap = { top: 'flex-start', center: 'center', bottom: 'flex-end' };
@@ -119,10 +124,10 @@ const CanvasScreenRenderer: React.FC<{
 
     const containerStyle: React.CSSProperties = { 
         ...textStyles, 
-        textShadow: (config.textShadowEnabled ?? false) ? '2px 2px 4px rgba(0,0,0,0.6)' : 'none',
+        textShadow: (config.textShadowEnabled ?? false) ? (isLightMode ? 'none' : '2px 2px 4px rgba(0,0,0,0.6)') : 'none',
         ...(config.backgroundImageUrl && { backgroundImage: `url("${config.backgroundImageUrl}")` }),
-        ...(activeStyle.backgroundColor && { backgroundColor: activeStyle.backgroundColor }),
-        ...(activeStyle.textColor && { color: activeStyle.textColor }),
+        backgroundColor: bgColor,
+        color: txtColor,
         justifyContent: safeJustify,
         ...(canClickAnywhere && { cursor: 'pointer' })
     };
@@ -196,7 +201,7 @@ const CanvasScreenRenderer: React.FC<{
             <div className="custom-scrollbar" style={{
                 display: 'flex', flexDirection: 'column', width: '100%', alignItems: 'center', 
                 gap: `${activeStyle.spacing === '' ? 0 : (activeStyle.spacing ?? 12)}px`,
-                flex: '0 1 auto', overflowY: 'auto', overflowX: 'hidden', minHeight: 0
+                flex: '0 1 auto', overflowY: 'auto', overflowX: 'hidden', minHeight: 0, padding: '2px 0'
             }}>
                 {config.headline && (
                     <div className="link-content-wrapper ql-editor" style={{ width: '100%', flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: config.headline }} />
@@ -304,7 +309,10 @@ const StaticScreen: React.FC<{
     playScreenTransitionAudio?: () => void;
     playTimerTickAudio?: () => void;
     playTimerGoAudio?: () => void;
-}> = ({ view, data, activeGameData, result, handleRestart, advanceFromIntro, advanceFromPromo, advancePreGame, totalScore, pointCosts, redeemPoints, playEventAudio, playClickAudio, playScreenTransitionAudio, playTimerTickAudio, playTimerGoAudio, start }) => {
+    triggerResolutionReplay?: (keepPoints: boolean, targetIndex: number) => void;
+    hotSwapConversionScreen?: (fallbackScreenId: string) => void;
+    activeFallbackScreenId?: string | null;
+}> = ({ view, data, activeGameData, result, handleRestart, advanceFromIntro, advanceFromPromo, advancePreGame, totalScore, pointCosts, redeemPoints, playEventAudio, playClickAudio, playScreenTransitionAudio, playTimerTickAudio, playTimerGoAudio, triggerResolutionReplay, hotSwapConversionScreen, activeFallbackScreenId, start }) => {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -354,9 +362,16 @@ const StaticScreen: React.FC<{
 
     switch (view) {
         case 'intro': {
+            const parsedIntroConfig = {
+                ...data.macrogame.introScreen,
+                hasProgressTracker: data.macrogame.config.showProgress,
+                hasProgressLabels: data.macrogame.config.progressShowLabels,
+                headline: parseGameMergeTags(data.macrogame.introScreen?.headline || '', '', '', data.targetScore, data.targetRewardName),
+                bodyText: parseGameMergeTags(data.macrogame.introScreen?.bodyText || '', '', '', data.targetScore, data.targetRewardName)
+            };
             return (
                 <CanvasScreenRenderer 
-                    config={{ ...data.macrogame.introScreen, hasProgressTracker: data.macrogame.config.showProgress, hasProgressLabels: data.macrogame.config.progressShowLabels }}
+                    config={parsedIntroConfig}
                     isLightMode={isLightMode}
                     textStyles={textStyles}
                     contentWidth={contentWidth}
@@ -434,17 +449,17 @@ const StaticScreen: React.FC<{
                                 <div className="custom-scrollbar" style={{
                                     display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%',
                                     gap: `${preGame.textSpacing === '' ? 0 : (preGame.textSpacing ?? 16)}px`,
-                                    flex: '0 1 auto', overflowY: 'auto', overflowX: 'hidden', minHeight: 0
+                                    flex: '0 1 auto', overflowY: 'auto', overflowX: 'hidden', minHeight: 0, padding: '2px 0'
                                 }}>
                                     {preGame.headline && (
                                         <div className="link-content-wrapper ql-editor" style={{ width: '100%', flexShrink: 0 }} dangerouslySetInnerHTML={{ 
-                                            __html: parseGameMergeTags(preGame.headline, activeGameData?.name, activeGameData?.controls) 
+                                            __html: parseGameMergeTags(preGame.headline, activeGameData?.name, activeGameData?.controls, data.targetScore, data.targetRewardName) 
                                         }} />
                                     )}
 
                                     {preGame.bodyText && (
                                         <div className="link-content-wrapper ql-editor" style={{ width: '100%', flexShrink: 0 }} dangerouslySetInnerHTML={{ 
-                                            __html: parseGameMergeTags(preGame.bodyText, activeGameData?.name, activeGameData?.controls) 
+                                            __html: parseGameMergeTags(preGame.bodyText, activeGameData?.name, activeGameData?.controls, data.targetScore, data.targetRewardName) 
                                         }} />
                                     )}
                                 </div>
@@ -474,9 +489,16 @@ const StaticScreen: React.FC<{
             );
         }       
         case 'promo': {
+            const parsedPromoConfig = {
+                ...data.macrogame.promoScreen,
+                hasProgressTracker: data.macrogame.config.showProgress,
+                hasProgressLabels: data.macrogame.config.progressShowLabels,
+                headline: parseGameMergeTags(data.macrogame.promoScreen?.headline || '', '', '', data.targetScore, data.targetRewardName),
+                bodyText: parseGameMergeTags(data.macrogame.promoScreen?.bodyText || '', '', '', data.targetScore, data.targetRewardName)
+            };
             return (
                 <CanvasScreenRenderer 
-                    config={{ ...data.macrogame.promoScreen, hasProgressTracker: data.macrogame.config.showProgress, hasProgressLabels: data.macrogame.config.progressShowLabels }}
+                    config={parsedPromoConfig}
                     isLightMode={isLightMode}
                     textStyles={textStyles}
                     contentWidth={contentWidth}
@@ -497,8 +519,11 @@ const StaticScreen: React.FC<{
             const currentTheme = data.macrogame.globalStyling?.theme || 'dark';
             const isLight = currentTheme === 'light';
 
-            if (data.macrogame.conversionScreenId) {
-                const screen = data.allConversionScreens.find((s: ConversionScreen) => s.id === data.macrogame.conversionScreenId);
+            // Evaluate active fallback or standard ID
+            const targetScreenId = activeFallbackScreenId || data.macrogame.conversionScreenId;
+
+            if (targetScreenId) {
+                const screen = data.allConversionScreens.find((s: ConversionScreen) => s.id === targetScreenId);
                 return screen ? (
                     <ConversionScreenHost 
                         screen={screen} 
@@ -517,6 +542,10 @@ const StaticScreen: React.FC<{
                         playScreenTransitionAudio={playScreenTransitionAudio}
                         playTimerTickAudio={playTimerTickAudio}
                         playTimerGoAudio={playTimerGoAudio}
+                        triggerResolutionReplay={triggerResolutionReplay}
+                        hotSwapConversionScreen={hotSwapConversionScreen}
+                        previewGateStateOverride={data.previewGateStateOverride}
+                        revealResetTrigger={data.revealResetTrigger}
                     />
                 ) : <div style={textStyles}><h2>Game Over!</h2><p>(Conversion screen missing or loading...)</p></div>;
             }
@@ -549,66 +578,128 @@ const StaticScreen: React.FC<{
 interface StaticMacrogamePreviewProps {
     macrogame: Macrogame;
     previewFocusTarget?: { view: string, index?: number, timestamp?: number };
+    previewPointsOverride?: number;
     onEngineStateChange?: (state: { view: string, index: number }) => void;
     onThemeChange?: (theme: 'dark' | 'light') => void;
 }
 
-export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ macrogame, previewFocusTarget, onEngineStateChange, onThemeChange }) => {
+export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ macrogame, previewFocusTarget, previewPointsOverride, onEngineStateChange, onThemeChange }) => {
     const wrapperRef = useRef<HTMLDivElement>(null);
     const [scale, setScale] = useState(1);
     const [orientation, setOrientation] = useState<'landscape' | 'portrait'>('landscape');
     const { allMicrogames, customMicrogames, allConversionScreens, allConversionMethods } = useData();
+    const [previewGateStateOverride, setPreviewGateStateOverride] = useState<'locked' | 'unlocked'>('locked');
+    const [revealResetTrigger, setRevealResetTrigger] = useState<{ instanceId?: string; timestamp: number } | undefined>(undefined);
 
     // 1. HYDRATE MACROGAME DATA IN REAL-TIME
     const hydratedMacrogame = useMemo(() => {
         if (!macrogame) return null;
 
-        const flowWithDetails = macrogame.flow.map((flowItem: any) => {
+        // --- THE GOLD STANDARD FIX: Deep-merge missing schema properties ---
+        const safeMacrogame = hydrateMacrogame(macrogame, DEFAULT_MACROGAME_STATE) as Macrogame;
+
+        const flowWithDetails = safeMacrogame.flow.map((flowItem: any) => {
             const baseGame = allMicrogames.find(mg => mg.id === flowItem.microgameId);
-            if (!baseGame) return null;
+            if (!baseGame || baseGame.isActive === false) return null;
             
             const customVariant = flowItem.variantId ? customMicrogames.find(v => v.id === flowItem.variantId) : undefined;
-            const customSkinData = customVariant?.skinData || {};
+            
+            // --- ROBUST SKIN HYDRATION (Fixes blank screens for inline configs) ---
+            let sourceSkinData = customVariant?.skinData || {};
+            if (Object.keys(sourceSkinData).length === 0 && flowItem.customSkinData) {
+                sourceSkinData = flowItem.customSkinData;
+            }
+            const customSkinData = Object.keys(sourceSkinData).reduce((acc: any, key: string) => { 
+                const item = sourceSkinData[key];
+                acc[key] = item; 
+                return acc; 
+            }, {});
 
+            // --- ROBUST DEFINITION LOOKUP (Fixes missing default rules & casing issues) ---
             let definition = MICROGAME_DEFINITIONS[baseGame.id];
+            if (!definition) {
+                const key = Object.keys(MICROGAME_DEFINITIONS).find(k => k.toLowerCase() === baseGame.id.toLowerCase());
+                if (key) definition = MICROGAME_DEFINITIONS[key];
+            }
+            
+            const eventDefaultScores: { [key: string]: number } = {};
+            if (definition?.events) {
+                Object.entries(definition.events).forEach(([key, def]) => {
+                    if ((def as any).canScore && (def as any).defaultPoints) {
+                        eventDefaultScores[key] = (def as any).defaultPoints;
+                    }
+                });
+            }
+
             const factoryRules = definition?.defaultRules || {};
             const variantRules = customVariant?.rules || {};
+            const previewRules = flowItem.rules || {};
 
             // --- PHASE 3: MACROGAME ECONOMY OVERRIDE ---
             // The Macrogame is the ultimate authority. If the point system is ON at the macro level, 
             // it forces all microgames to participate and override their local point settings.
-            const isMacroEconomyActive = macrogame?.config?.showPoints === true;
+            const isMacroEconomyActive = safeMacrogame.config.showPoints === true;
+
+            const resolveCondition = (flowC: any, varC: any, factC: any) => {
+                if (flowC && Object.keys(flowC).length > 0) return flowC;
+                if (varC && Object.keys(varC).length > 0) return varC;
+                return factC || {};
+            };
 
             const mergedRules = {
                 ...factoryRules,
                 ...variantRules,
-                enablePoints: isMacroEconomyActive ? true : (variantRules.enablePoints ?? factoryRules.enablePoints ?? false),
-                showScore: isMacroEconomyActive ? true : (variantRules.showScore ?? factoryRules.showScore ?? false),
+                ...previewRules,
+                enablePoints: isMacroEconomyActive ? true : (previewRules.enablePoints ?? variantRules.enablePoints ?? factoryRules.enablePoints ?? false),
+                showScore: isMacroEconomyActive ? true : (previewRules.showScore ?? variantRules.showScore ?? factoryRules.showScore ?? false),
                 scores: { 
+                    ...eventDefaultScores,
                     ...(factoryRules.scores || {}), 
                     ...(variantRules.scores || {}),
+                    ...(previewRules.scores || {}),
                     ...(flowItem.pointRules || {}) // Macrogame economy ultimate authority on point values
                 },
-                winCondition: { ...(factoryRules.winCondition || {}), ...(variantRules.winCondition || {}), ...(flowItem.winCondition || {}) },
-                lossCondition: { ...(factoryRules.lossCondition || {}), ...(variantRules.lossCondition || {}), ...(flowItem.lossCondition || {}) }
+                // Use strict overwrite, but safely ignore empty objects that strip defaults
+                winCondition: resolveCondition(flowItem.winCondition, variantRules.winCondition, factoryRules.winCondition),
+                lossCondition: resolveCondition(flowItem.lossCondition, variantRules.lossCondition, factoryRules.lossCondition)
             };
 
             const mergedMechanics = {
                 ...(baseGame.mechanics || {}),
-                ...(customVariant?.mechanics || {})
+                ...(customVariant?.mechanics || {}),
+                ...(flowItem.mechanics || {})
             };
 
             const gameName = customVariant ? customVariant.name : baseGame.name;
+            
+            // USE SAFEMACROGAME: Ensures older, unhydrated databases don't crash the preview
+            const activePreGameConfig = flowItem.preGameConfig || safeMacrogame.config.preGameConfig;
+            const activeResultConfig = flowItem.resultConfig || safeMacrogame.config.resultConfig;
 
-            return { ...baseGame, ...flowItem, name: gameName, customSkinData, rules: mergedRules, mechanics: mergedMechanics };
+            return { 
+                ...baseGame, 
+                ...flowItem, 
+                id: baseGame.id, // ENFORCE base game ID to prevent registry lookup failures
+                name: gameName, 
+                customSkinData, 
+                rules: mergedRules, 
+                mechanics: mergedMechanics,
+                preGameConfig: activePreGameConfig,
+                resultConfig: activeResultConfig
+            };
         }).filter(Boolean);
 
-        return { ...macrogame, flow: flowWithDetails as any[] };
+        return { ...safeMacrogame, flow: flowWithDetails as any[] };
     }, [macrogame, allMicrogames, customMicrogames]);
 
     // 2. INITIALIZE ENGINE
     const engine = useMacroGameEngine(hydratedMacrogame as Macrogame);
     const [runId, setRunId] = useState(0);
+
+    // Automatically reset the gate state back to normal evaluation if the user toggles modes
+    useEffect(() => {
+        setPreviewGateStateOverride('locked');
+    }, [engine.mode]);
 
     const [isPaused, setIsPaused] = useState(false);
     const [showLayoutGuides, setShowLayoutGuides] = useState(false);
@@ -631,6 +722,14 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
     const freshGameData = engine.activeGameData ? (hydratedMacrogame?.flow[engine.currentFlowIndex] || engine.activeGameData) : null;
     const activePreGameConfig = (freshGameData as any)?.preGameConfig || hydratedMacrogame?.config?.preGameConfig;
     const activeResultConfig = (freshGameData as any)?.resultConfig || hydratedMacrogame?.config?.resultConfig;
+
+    // --- UPSTREAM VISIBILITY ---
+    const rawTargetId = hydratedMacrogame?.config?.conversionScreenConfig?.targetRewardInstanceId;
+    const targetRewardInstanceId = useMemo(() => getResolvedTargetInstanceId(rawTargetId, linkedScreen?.methods, hydratedMacrogame?.pointCosts), [rawTargetId, linkedScreen?.methods, hydratedMacrogame?.pointCosts]);
+    const targetScore = useMemo(() => getEffectiveTargetCost(targetRewardInstanceId, linkedScreen?.methods, hydratedMacrogame?.pointCosts), [targetRewardInstanceId, linkedScreen?.methods, hydratedMacrogame?.pointCosts]);
+    
+    const nameOverride = hydratedMacrogame?.config?.conversionScreenConfig?.targetRewardNameOverride;
+    const targetRewardName = useMemo(() => getTargetRewardName(targetRewardInstanceId, linkedScreen?.methods, allConversionMethods, nameOverride), [targetRewardInstanceId, linkedScreen?.methods, allConversionMethods, nameOverride]);
 
     // Scan the current screen to see if a countdown exists so we know whether to render the tester UI
     const currentHasCountdown = useMemo(() => {
@@ -697,6 +796,7 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
         if (engine.view === 'game' || ['title', 'controls', 'combined', 'result'].includes(engine.view)) {
             const flowType = hydratedMacrogame?.config.screenFlowType || 'Separate';
             const targetView = flowType === 'Separate' ? 'title' : (flowType === 'Combined' ? 'combined' : 'game');
+
             // Pass 'true' to force the engine to reset the overlay state even if the view stays 'game'
             engine.jumpTo(targetView, engine.currentFlowIndex, true);
         } else {
@@ -775,11 +875,19 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
 
     // 4. MICROGAME HUD STATE
     const [hudState, setHudState] = useState({ lives: null, maxLives: null, goalCurrent: null, goalTarget: null, timerProgress: 100 });
-    useEffect(() => { setHudState({ lives: null, maxLives: null, goalCurrent: null, goalTarget: null, timerProgress: 100 }); }, [engine.activeGameData, runId]);
+    
+    // FIX: Depend on structural flow shifts (gameKey, flowIndex) rather than the active data reference
+    // This prevents live-edits from wiping out the HUD after the microgame has safely mounted!
+    useEffect(() => { 
+        setHudState({ lives: null, maxLives: null, goalCurrent: null, goalTarget: null, timerProgress: 100 }); 
+    }, [engine.currentFlowIndex, engine.gameKey, runId]);
+    
     const handleUpdateHUD = useCallback((payload: any) => setHudState(prev => ({ ...prev, ...payload })), []);
 
     // 5. RENDER LOGIC
-    if (!hydratedMacrogame) return <div style={{...styles.centerContent, color: 'white'}}>Loading Data...</div>;
+    if (!hydratedMacrogame || allMicrogames.length === 0) return <div style={{...styles.centerContent, color: 'white'}}>Loading Data...</div>;
+
+    const displayScore = previewPointsOverride !== undefined ? previewPointsOverride : engine.totalScore;
 
     // The Macrogame's global styling is the absolute source of truth for layout boundaries
     const contentWidth = hydratedMacrogame.globalStyling?.width ?? 50;
@@ -805,8 +913,24 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
         const skinConfig = (freshGameData as any).customSkinData || {};
         const mechanics = (freshGameData as any).mechanics || {};
         
-        // Use the dropdown override if we are in inspection mode, otherwise use real game result
-        const resultType = engine.mode === 'inspection' ? resultViewMode : ((engine.result as any)?.type || (engine.result?.win ? 'win' : 'loss'));
+        // Safely resolve the ultimate outcome, strictly enforcing Macro-level rule overrides
+        let resultType = 'win';
+        if (engine.mode === 'inspection') {
+            resultType = resultViewMode;
+        } else if (engine.result) {
+            if (engine.result.win) {
+                resultType = 'win';
+            } else {
+                // If the user specifically set Loss Condition to "Failure" (Did not meet win condition),
+                // it absolutely overrides any "try_again" state the native microgame tries to emit.
+                if (rules?.lossCondition?.type === 'failure') {
+                    resultType = 'loss';
+                } else {
+                    resultType = (engine.result as any).type || 'loss';
+                }
+            }
+        }
+        
         const winType = rules?.winCondition?.type;
         goalLabel = winType === 'quota' ? "Items Caught" : winType === 'score' ? "Points Earned" : undefined;
 
@@ -821,10 +945,10 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
             <>
                 {!isStandAloneResult && (
                     <ActiveMicrogame 
-                        key={`${engine.gameKey}-${runId}-${engine.currentGameIndex}`} 
+                        key={`${engine.gameKey}-${runId}-${engine.currentFlowIndex}-${JSON.stringify(rules)}-${JSON.stringify(mechanics)}`} 
                         onEnd={engine.onGameEnd} 
                         onReportEvent={engine.onReportEvent}
-                        onUpdateHUD={handleUpdateHUD} 
+                        onUpdateHUD={handleUpdateHUD}
                         skinConfig={skinConfig} 
                         gameData={engine.activeGameData} 
                         rules={rules}
@@ -850,8 +974,10 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
                         <MicrogameResultOverlay 
                             key={`result-${engine.currentFlowIndex}-${countdownKey}`}
                             type={resultType as any}
-                            score={engine.totalScore}
+                            score={displayScore}
                             showScore={rules.enablePoints && rules.showScore}
+                            targetScore={targetScore}
+                            targetRewardName={targetRewardName}
                             onContinue={engine.continueFlow}
                             onRetry={canRetry ? engine.retryCurrentMicrogame : undefined}
                             config={resultConfig}
@@ -874,8 +1000,8 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
         const syncWidth = hydratedMacrogame.config.conversionScreenConfig?.syncWidth !== false;
         const finalConversionWidth = syncWidth ? contentWidth : (hydratedMacrogame.config.conversionScreenConfig?.customWidth ?? 100);
 
-        const dataForStaticScreen = { macrogame: hydratedMacrogame, allConversionScreens, mode: engine.mode, showLayoutGuides, contentWidth, contentHeight, finalConversionWidth, isCountdownActive };
-        content = <StaticScreen key={`static-${engine.view}-${countdownKey}`} {...engine} data={dataForStaticScreen} handleRestart={handleRestart} totalScore={engine.totalScore} pointCosts={hydratedMacrogame.pointCosts || {}} redeemPoints={engine.redeemPoints} playEventAudio={engine.playEventAudio} playClickAudio={engine.playClickAudio} playScreenTransitionAudio={engine.playScreenTransitionAudio} playTimerTickAudio={engine.playTimerTickAudio} playTimerGoAudio={engine.playTimerGoAudio} />;
+        const dataForStaticScreen = { macrogame: hydratedMacrogame, allConversionScreens, mode: engine.mode, showLayoutGuides, contentWidth, contentHeight, finalConversionWidth, isCountdownActive, targetScore, targetRewardName, previewGateStateOverride, revealResetTrigger };
+        content = <StaticScreen key={`static-${engine.view}-${countdownKey}`} {...engine} data={dataForStaticScreen} handleRestart={handleRestart} totalScore={displayScore} pointCosts={hydratedMacrogame.pointCosts || {}} redeemPoints={engine.redeemPoints} playEventAudio={engine.playEventAudio} playClickAudio={engine.playClickAudio} playScreenTransitionAudio={engine.playScreenTransitionAudio} playTimerTickAudio={engine.playTimerTickAudio} playTimerGoAudio={engine.playTimerGoAudio} start={engine.start} />;
     }
 
     const fontType = hydratedMacrogame.globalStyling?.fontType || 'standard';
@@ -931,13 +1057,30 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
 
             {/* Toolbar */}
             <div style={{ padding: '0.5rem 1rem', borderBottom: '1px solid #eee', backgroundColor: '#f8f9fa', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                
+                {/* Line 1: Header & Global Reset */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                        <h5 style={{ margin: 0, color: '#333', fontSize: '1rem', whiteSpace: 'nowrap' }}>Live Preview</h5>
+                        <h5 style={{ margin: 0, color: '#333', fontSize: '1rem', whiteSpace: 'nowrap' }}>Macrogame Preview</h5>
                         <span style={{ color: '#666', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>• {engine.progressText || engine.view}</span>
                     </div>
-                    
-                    {/* Mode Switcher & Stepper */}
+                    <button 
+                        onClick={() => {
+                            setRunId(c => c + 1);
+                            setIsPaused(false);
+                            setCountdownState('idle');
+                            setCountdownKey(k => k + 1);
+                            engine.start(); // Fully restarts the flow
+                        }}
+                        style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', backgroundColor: '#fff', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
+                        title="Restart the entire macrogame flow from the beginning"
+                    >
+                        ↻ Reset Preview
+                    </button>
+                </div>
+
+                {/* Line 2: Mode & Navigation */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #eee', paddingTop: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#e9ecef', padding: '3px', borderRadius: '6px' }}>
                         <button 
                             onClick={() => engine.setMode('simulation')} 
@@ -951,25 +1094,25 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
                         >
                             Inspection
                         </button>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '0.5rem', borderLeft: '1px solid #ccc', paddingLeft: '0.5rem' }}>
-                            <button onClick={handleJumpToFirst} disabled={!engine.canStepBackward} style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #ccc', backgroundColor: '#fff', borderRadius: '4px 0 0 4px', cursor: engine.canStepBackward ? 'pointer' : 'not-allowed', color: '#333', opacity: engine.canStepBackward ? 1 : 0.5 }} title="Skip to First">&laquo;</button>
-                            <button onClick={engine.stepBackward} disabled={!engine.canStepBackward} style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #ccc', borderLeft: 'none', backgroundColor: '#fff', borderRadius: '0', cursor: engine.canStepBackward ? 'pointer' : 'not-allowed', color: '#333', opacity: engine.canStepBackward ? 1 : 0.5 }}>&larr; Prev</button>
-                            <button onClick={engine.stepForward} disabled={!engine.canStepForward} style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #ccc', borderLeft: 'none', backgroundColor: '#fff', borderRadius: '0', cursor: engine.canStepForward ? 'pointer' : 'not-allowed', color: '#333', opacity: engine.canStepForward ? 1 : 0.5 }}>Next &rarr;</button>
-                            <button onClick={handleJumpToLast} disabled={!engine.canStepForward} style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #ccc', borderLeft: 'none', backgroundColor: '#fff', borderRadius: '0 4px 4px 0', cursor: engine.canStepForward ? 'pointer' : 'not-allowed', color: '#333', opacity: engine.canStepForward ? 1 : 0.5 }} title="Skip to Last">&raquo;</button>
-                        </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <button onClick={handleJumpToFirst} disabled={!engine.canStepBackward} style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #ccc', backgroundColor: '#fff', borderRadius: '4px 0 0 4px', cursor: engine.canStepBackward ? 'pointer' : 'not-allowed', color: '#333', opacity: engine.canStepBackward ? 1 : 0.5 }} title="Skip to First">&laquo;</button>
+                        <button onClick={engine.stepBackward} disabled={!engine.canStepBackward} style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #ccc', borderLeft: 'none', backgroundColor: '#fff', borderRadius: '0', cursor: engine.canStepBackward ? 'pointer' : 'not-allowed', color: '#333', opacity: engine.canStepBackward ? 1 : 0.5 }}>&larr; Prev</button>
+                        <button onClick={engine.stepForward} disabled={!engine.canStepForward} style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #ccc', borderLeft: 'none', backgroundColor: '#fff', borderRadius: '0', cursor: engine.canStepForward ? 'pointer' : 'not-allowed', color: '#333', opacity: engine.canStepForward ? 1 : 0.5 }}>Next &rarr;</button>
+                        <button onClick={handleJumpToLast} disabled={!engine.canStepForward} style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #ccc', borderLeft: 'none', backgroundColor: '#fff', borderRadius: '0 4px 4px 0', cursor: engine.canStepForward ? 'pointer' : 'not-allowed', color: '#333', opacity: engine.canStepForward ? 1 : 0.5 }} title="Skip to Last">&raquo;</button>
                     </div>
                 </div>
 
-                {/* Second Line: Actions and Mode Selector */}
+                {/* Line 3: Layout, Theme, and Inspection Controls */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #eee', paddingTop: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer', color: '#555', fontWeight: 500 }}>
                             <input type="checkbox" checked={showLayoutGuides} onChange={(e) => setShowLayoutGuides(e.target.checked)} />
                             Show Layout Guides
                         </label>
-                        
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderLeft: '1px solid #ccc', paddingLeft: '1rem' }}>
+                            
                             {/* TODO: Restore orientation selector in a later phase when adding mobile support 
                             <select value={orientation} onChange={(e) => setOrientation(e.target.value as 'landscape' | 'portrait')} style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', borderColor: '#ccc', backgroundColor: '#fff', color: '#333', fontSize: '0.85rem', cursor: 'pointer' }}>
                                 <option value="landscape">Landscape (16:9)</option>
@@ -977,76 +1120,85 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
                             </select>
                             */}
 
-                            {engine.mode === 'inspection' && (showPlayPause || showRestart) && (
-                                <>
-                                    {showPlayPause && (
-                                        <button 
-                                            onClick={() => {
-                                                if (currentHasCountdown) {
-                                                    setCountdownState(countdownState === 'playing' ? 'paused' : 'playing');
-                                                } else if (isGameActive) {
-                                                    setIsPaused(!isPaused);
-                                                }
-                                            }} 
-                                            style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', backgroundColor: (currentHasCountdown ? countdownState === 'playing' : !isPaused) ? '#f1c40f' : '#2ecc71', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', transition: 'background-color 0.2s' }}
-                                        >
-                                            {currentHasCountdown ? (countdownState === 'playing' ? 'Pause' : 'Play') : (isPaused ? 'Play' : 'Pause')}
-                                        </button>
-                                    )}
-
-                                    {showRestart && (
-                                        <button 
-                                            onClick={handleRestart} 
-                                            style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', backgroundColor: '#0866ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                                        >
-                                            Restart {(isGameActive || isGameFinished || isPreGameScreen) ? 'Game' : 'Screen'}
-                                        </button>
-                                    )}
-                                </>
-                            )}
-
-                            {engine.view === 'result' && engine.mode === 'inspection' && (
-                                <select 
-                                    value={resultViewMode} 
-                                    onChange={(e) => setResultViewMode(e.target.value as 'win' | 'loss' | 'try_again')} 
-                                    style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', borderColor: '#ccc', backgroundColor: '#fff', color: '#333', fontSize: '0.85rem', cursor: 'pointer' }}
-                                >
-                                    <option value="win">Preview Win State</option>
-                                    {activeCanLose && <option value="loss">Preview Loss State</option>}
-                                    {activeCanTryAgain && <option value="try_again">Preview Try Again State</option>}
-                                </select>
-                            )}
-
-                            {engine.mode === 'simulation' && (
-                                <button 
-                                    onClick={() => {
-                                        setRunId(c => c + 1);
-                                        setIsPaused(false);
-                                        setCountdownState('idle');
-                                        setCountdownKey(k => k + 1);
-                                        engine.start();
-                                    }} 
-                                    style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                                >
-                                    Restart Flow
-                                </button>
-                            )}
+                            <span style={{ fontSize: '0.85rem', color: '#666' }}>Mode:</span>
+                            <select 
+                                value={hydratedMacrogame.globalStyling?.theme || 'dark'}
+                                onChange={(e) => onThemeChange && onThemeChange(e.target.value as 'dark' | 'light')}
+                                style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', borderColor: '#ccc', fontSize: '0.85rem', cursor: 'pointer', backgroundColor: '#fff' }}
+                            >
+                                <option value="dark">Dark (Default)</option>
+                                <option value="light">Light</option>
+                            </select>
                         </div>
-
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontSize: '0.85rem', color: '#666' }}>Mode:</span>
-                        <select 
-                            value={hydratedMacrogame.globalStyling?.theme || 'dark'}
-                            onChange={(e) => onThemeChange && onThemeChange(e.target.value as 'dark' | 'light')}
-                            style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', borderColor: '#ccc', fontSize: '0.85rem', cursor: 'pointer', backgroundColor: '#fff' }}
-                        >
-                            <option value="dark">Dark (Default)</option>
-                            <option value="light">Light</option>
-                        </select>
+                        {engine.mode === 'inspection' && (showPlayPause || showRestart) && (
+                            <>
+                                {showPlayPause && (
+                                    <button 
+                                        onClick={() => {
+                                            if (currentHasCountdown) {
+                                                setCountdownState(countdownState === 'playing' ? 'paused' : 'playing');
+                                            } else if (isGameActive) {
+                                                setIsPaused(!isPaused);
+                                            }
+                                        }} 
+                                        style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', backgroundColor: (currentHasCountdown ? countdownState === 'playing' : !isPaused) ? '#f1c40f' : '#2ecc71', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', transition: 'background-color 0.2s' }}
+                                    >
+                                        {currentHasCountdown ? (countdownState === 'playing' ? 'Pause' : 'Play') : (isPaused ? 'Play' : 'Pause')}
+                                    </button>
+                                )}
+
+                                {showRestart && (
+                                    <button 
+                                        onClick={handleRestart} 
+                                        style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', backgroundColor: '#0866ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                    >
+                                        Restart {(isGameActive || isGameFinished || isPreGameScreen) ? 'Game' : 'Screen'}
+                                    </button>
+                                )}
+                            </>
+                        )}
+
+                        {engine.view === 'result' && engine.mode === 'inspection' && (
+                            <select 
+                                value={resultViewMode} 
+                                onChange={(e) => setResultViewMode(e.target.value as 'win' | 'loss' | 'try_again')} 
+                                style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', borderColor: '#ccc', backgroundColor: '#fff', color: '#333', fontSize: '0.85rem', cursor: 'pointer' }}
+                            >
+                                <option value="win">Preview Win State</option>
+                                {activeCanLose && <option value="loss">Preview Loss State</option>}
+                                {activeCanTryAgain && <option value="try_again">Preview Try Again State</option>}
+                            </select>
+                        )}
                     </div>
                 </div>
+
+                {/* Line 4: Gate State (Conditional) */}
+                {engine.view === 'end' && linkedScreen?.methods?.some(m => m.gate) && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '1rem', borderTop: '1px solid #eee', paddingTop: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontSize: '0.85rem', color: '#666' }}>Gates:</span>
+                            <select 
+                                value={previewGateStateOverride} 
+                                onChange={(e) => setPreviewGateStateOverride(e.target.value as 'locked' | 'unlocked')}
+                                style={{ padding: '0.2rem 0.5rem', borderRadius: '4px', borderColor: '#ccc', backgroundColor: '#fff', color: '#333', fontSize: '0.85rem', cursor: 'pointer' }}
+                            >
+                                <option value="locked">Locks Active</option>
+                                <option value="unlocked">Force Unlock All</option>
+                            </select>
+                        </div>
+
+                        <button 
+                            onClick={() => setRevealResetTrigger({ timestamp: Date.now() })}
+                            style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem', backgroundColor: '#fff', color: '#666', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', transition: 'all 0.2s' }}
+                            title="Reset Gate Locks"
+                        >
+                            ↻ Reset Gates
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Preview Area */}
@@ -1061,6 +1213,7 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
                     // --- INHERITED GLOBAL STYLES (Layer 1: Bezel/Frame) ---
                     backgroundColor: hydratedMacrogame.globalStyling?.theme === 'light' ? '#ffffff' : '#1a1a2e',
                     fontFamily: activeFontFamily,
+                    fontSize: '16px', // Align with standalone preview to prevent em/rem warping
                     borderRadius: hydratedMacrogame.globalStyling?.borderRadius ?? 8,
                     paddingTop: hydratedMacrogame.globalStyling?.paddingTop ?? 0,
                     paddingBottom: hydratedMacrogame.globalStyling?.paddingBottom ?? 0,
@@ -1074,18 +1227,23 @@ export const StaticMacrogamePreview: React.FC<StaticMacrogamePreviewProps> = ({ 
                             key={`chrome-${engine.view}-${engine.currentFlowIndex}-${countdownKey}`}
                             view={engine.view}
                             theme={hydratedMacrogame.globalStyling?.theme}
+                            targetScore={targetScore}
+                            targetRewardName={targetRewardName}
+                            previewGateStateOverride={previewGateStateOverride}
                             macroConfig={{
                                 showPoints: hydratedMacrogame.config.showPoints ?? false,
                                 showProgress: hydratedMacrogame.config.showProgress ?? false,
                                 progressFormat: (hydratedMacrogame.config as any).progressFormat || 'visual',
                                 progressShowLabels: (hydratedMacrogame.config as any).progressShowLabels ?? false,
+                                progressStyle: hydratedMacrogame.config.progressStyle,
+                                lightProgressStyle: hydratedMacrogame.config.lightProgressStyle,
                                 hasIntro: hydratedMacrogame.introScreen?.enabled ?? false,
                                 hasPromo: hydratedMacrogame.promoScreen?.enabled ?? false,
                                 hudLayout: hydratedMacrogame.globalStyling?.hudLayout,
                                 hudPaddingY: hydratedMacrogame.globalStyling?.hudPaddingY,
                                 hudPaddingX: hydratedMacrogame.globalStyling?.hudPaddingX
                             }}
-                            totalScore={engine.totalScore}
+                            totalScore={displayScore}
                             progressText={engine.progressText}
                             currentStep={engine.currentGameIndex}
                             totalSteps={engine.totalGamesInFlow}

@@ -1,6 +1,4 @@
-/* src/components/conversions/MethodContainer.tsx */
-
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { MethodMask } from './MethodMask';
 import { MaskConfig } from '../../types';
 
@@ -23,40 +21,38 @@ export const MethodContainer: React.FC<MethodContainerProps> = ({
     themeMode = 'dark',
     parentStyle
 }) => {
-    // Determine visibility of the mask
-    // If it's covered, show mask. If not, hide it.
-    // The MethodMask component handles the fade-out animation internally when isRevealed changes.
-    
-    // We pass `isRevealed` as `!isCovered`. 
-    // When `isCovered` goes from true -> false, MethodMask triggers fade out.
-
     return (
         <div style={{ 
-            position: 'relative', // Ensure context
             display: 'grid', 
-            gridTemplateAreas: '"stack"', 
             width: '100%', 
-            isolation: 'isolate',
-            alignItems: 'center', 
+            alignItems: 'stretch', // Forces both layers to stretch to the max height
             justifyItems: 'stretch'
         }}>
             
             {/* 1. THE CONTENT LAYER */}
             <div style={{ 
-                gridArea: 'stack',
+                gridArea: '1 / 1', // Places in row 1, column 1
                 zIndex: 1,
                 filter: isCovered ? 'blur(4px) grayscale(100%)' : 'none',
                 opacity: isCovered ? 0.3 : 1,
                 pointerEvents: isCovered ? 'none' : 'auto',
                 transition: 'filter 0.5s ease, opacity 0.5s ease',
-                width: '100%'
+                width: '100%',
+                minHeight: 0
             }}>
                 {children}
             </div>
 
             {/* 2. THE MASK LAYER */}
             {maskConfig && (
-                <div style={{ gridArea: 'stack', zIndex: 10, width: '100%', height: '100%' }}>
+                <div style={{ 
+                    gridArea: '1 / 1', // Places exactly over the content layer
+                    zIndex: 10, 
+                    width: '100%', 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    minHeight: 0
+                }}>
                     <MethodMask 
                         config={maskConfig}
                         isRevealed={!isCovered} 

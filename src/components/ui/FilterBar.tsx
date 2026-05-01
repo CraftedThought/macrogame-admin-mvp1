@@ -14,7 +14,7 @@ type SelectFilter = {
     options: (SelectFilterOption | SelectFilterGroup)[];
 };
 
-export type MultiSelectOption = { value: string; label: string };
+export type MultiSelectOption = { value: string; label: string; isExclusive?: boolean };
 export type MultiSelectGroup = { group: string; options: MultiSelectOption[] };
 
 type MultiSelectFilter = {
@@ -47,15 +47,46 @@ const MultiSelectDropdown: React.FC<{ filter: MultiSelectFilter, value: string[]
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [wrapperRef]);
 
-    const handleSelect = (optionValue: string) => {
-        const newValue = value.includes(optionValue)
+    const handleSelect = (optionValue: string, isExclusive: boolean = false) => {
+        if (isExclusive) {
+            onChange([optionValue]);
+            setIsOpen(false); // Auto-close for single-select behavior
+            return;
+        }
+
+        // Get all exclusive values for this filter to filter them out
+        const exclusiveValues = filter.options.flatMap(o => {
+            if ('group' in o) return o.options.filter(so => so.isExclusive).map(so => so.value);
+            return o.isExclusive ? [o.value] : [];
+        });
+
+        let newValue = value.includes(optionValue)
             ? value.filter(v => v !== optionValue)
             : [...value, optionValue];
+
+        // Remove any exclusive values if a standard checkbox is toggled
+        newValue = newValue.filter(v => !exclusiveValues.includes(v));
+
         onChange(newValue);
     };
 
     // Say "All" when empty, or list the count when items are selected.
-    const buttonText = value.length > 0 ? `${value.length} selected` : 'All';
+    let buttonText = 'All';
+    if (value.length > 0) {
+        let isExclusive = false;
+        let selectedLabel = '';
+        if (value.length === 1) {
+            for (const option of filter.options) {
+                if ('group' in option) {
+                    const match = option.options.find(o => o.value === value[0]);
+                    if (match?.isExclusive) { isExclusive = true; selectedLabel = match.label; break; }
+                } else {
+                    if (option.value === value[0] && option.isExclusive) { isExclusive = true; selectedLabel = option.label; break; }
+                }
+            }
+        }
+        buttonText = isExclusive ? selectedLabel : `${value.length} selected`;
+    }
 
     return (
         <div ref={wrapperRef} style={{ position: 'relative', flex: 1 }}>
@@ -89,6 +120,20 @@ const MultiSelectDropdown: React.FC<{ filter: MultiSelectFilter, value: string[]
                         }
                         
                         // Render Standard Flat Option
+                        if (option.isExclusive) {
+                            return (
+                                <div 
+                                    key={option.value} 
+                                    onClick={() => handleSelect(option.value, true)} 
+                                    style={{ padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', borderBottom: '1px solid #ddd', cursor: 'pointer', backgroundColor: value.includes(option.value) ? '#eaf5fc' : '#f9f9f9' }}
+                                >
+                                    <div style={{ flex: 1, fontSize: '0.9rem', fontWeight: value.includes(option.value) ? 'bold' : 'normal', color: value.includes(option.value) ? '#084298' : '#333' }}>
+                                        {option.label}
+                                    </div>
+                                </div>
+                            );
+                        }
+
                         return (
                             <div key={option.value} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
                                 <input
@@ -96,7 +141,7 @@ const MultiSelectDropdown: React.FC<{ filter: MultiSelectFilter, value: string[]
                                     id={`${filter.stateKey}-${option.value}`}
                                     checked={value.includes(option.value)}
                                     onChange={() => handleSelect(option.value)}
-                                    style={{ marginRight: '0.75rem' }}
+                                    style={{ marginRight: '0.75rem', cursor: 'pointer' }}
                                 />
                                 <label htmlFor={`${filter.stateKey}-${option.value}`} style={{ flex: 1, fontSize: '0.9rem', cursor: 'pointer' }}>{option.label}</label>
                             </div>

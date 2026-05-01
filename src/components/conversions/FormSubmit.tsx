@@ -19,7 +19,7 @@ export const FormSubmit: React.FC<FormSubmitProps> = ({ method, onSuccess, onErr
 
   const [values, setValues] = useState<Record<string, string>>({});
 
-  const activeStyle = themeMode === 'light' && m.lightStyle ? m.lightStyle : m.style;
+  const activeStyle = themeMode === 'light' ? { ...m.style, ...(m.lightStyle || {}) } : m.style;
 
   const getDefaultLabel = (type: string) => {
       switch(type) {

@@ -32,7 +32,7 @@ export const LinkRedirect: React.FC<LinkRedirectProps> = ({ method, onSuccess, i
   const hasTriggeredRef = useRef(false);
   const methodRef = useRef<HTMLDivElement>(null); // Reference to this component in the DOM
 
-  const activeStyle = themeMode === 'light' && m.lightStyle ? m.lightStyle : m.style;
+  const activeStyle = themeMode === 'light' ? { ...m.style, ...(m.lightStyle || {}) } : m.style;
 
   const safeVal = (val: any, fallback: number) => {
       const num = Number(val);

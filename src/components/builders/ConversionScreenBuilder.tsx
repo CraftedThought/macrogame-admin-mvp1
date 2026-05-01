@@ -12,6 +12,7 @@ import { generateUUID, ensureUniqueName } from '../../utils/helpers';
 import { notifications } from '../../utils/notifications';
 import { MaskConfigurationForm } from '../forms/MaskConfigurationForm';
 import { SmartNumberInput } from '../ui/inputs/SmartNumberInput';
+import { GateResolutionEditor } from './conversion/screen/GateResolutionEditor';
 
 // --- Types ---
 
@@ -27,8 +28,9 @@ interface FormMethodItem {
     showContentBelow: boolean;
     contentBelow: string;
     gate: {
-        type: 'none' | 'on_success' | 'on_points';
+        type: 'none' | 'on_success' | 'point_threshold' | 'point_purchase';
         methodInstanceId?: string;
+        resolutionConfig?: any; // Form state container
     };
 }
 
@@ -145,7 +147,7 @@ const getStandardDefaults = (type: string): Partial<ConversionMethod> => {
 // --- Component ---
 
 export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = ({ initialScreen, onSave, onCancel }) => {
-    const { allConversionMethods, createConversionMethod, createConversionScreen, updateConversionScreen } = useData();
+    const { allConversionMethods, allConversionScreens, createConversionMethod, createConversionScreen, updateConversionScreen } = useData();
     const [isSaving, setIsSaving] = useState(false);
 
     // --- Simulation State for Point Threshold ---
@@ -155,6 +157,7 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
     // --- Preview State ---
     const [previewTheme, setPreviewTheme] = useState<'dark' | 'light'>('dark');
     const [previewOrientation, setPreviewOrientation] = useState<'landscape' | 'portrait'>('landscape');
+    const [previewGateState, setPreviewGateState] = useState<'locked' | 'unlocked'>('locked');
 
     // --- Content Memory Refs ---
     const lastScreenHeadline = React.useRef<string>('');
@@ -163,6 +166,11 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
 
     // --- Preview Reset State ---
     const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
+    const [revealResetTrigger, setRevealResetTrigger] = useState<{ instanceId?: string; timestamp: number }>({ timestamp: 0 });
+    
+    // Play/Pause State for Transitions
+    const [previewIsPlaying, setPreviewIsPlaying] = useState(false);
+    const [hasStartedPlaying, setHasStartedPlaying] = useState(false);
 
     // Helper for Editor Styling based on Preview Theme
     const editorStyle = previewTheme === 'dark' 
@@ -174,6 +182,24 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
     const [showBodyText, setShowBodyText] = useState(initialScreen ? !!initialScreen.bodyText : true);
 
     // 1. Prepare Default Method (Ensure at least one exists for new screens)
+    // Helper to generate default Resolution Config
+    const getDefaultResolutionConfig = () => ({
+        isPlayAgainEnabled: true,
+        playAgainBehavior: 'reset_points',
+        playAgainTargetIndex: 0,
+        isContinueEnabled: false,
+        routeTargetId: '',
+        transition: {
+            type: 'interact',
+            interactionMethod: 'click',
+            clickFormat: 'button',
+            buttonConfig: { text: 'Play Again', borderRadius: 6, paddingVertical: 12, paddingHorizontal: 32, widthMode: 'max', customWidth: 50, strokeStyle: 'none', strokeWidth: 2 },
+            buttonStyle: { backgroundColor: '#ffffff', textColor: '#333333', strokeColor: '#ffffff' },
+            lightButtonStyle: { backgroundColor: '#333333', textColor: '#ffffff', strokeColor: '#333333' }
+        }
+    });
+
+    // 1. Prepare Default Method (Ensure at least one exists for new screens)
     const defaultMethodItem: FormMethodItem = {
         instanceId: generateUUID(),
         methodId: '',
@@ -182,7 +208,7 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
         contentAbove: '',
         showContentBelow: false,
         contentBelow: '',
-        gate: { type: 'none' }
+        gate: { type: 'none', resolutionConfig: getDefaultResolutionConfig() }
     };
 
     // Initialize Form
@@ -214,8 +240,9 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                         // Update: Force string 'true'/'false' (Default to 'false' if undefined)
                         gate: m.gate ? { 
                             ...m.gate,
-                            replacePrerequisite: m.gate.replacePrerequisite ? 'true' : 'false'
-                        } : { type: 'none' },
+                            replacePrerequisite: m.gate.replacePrerequisite ? 'true' : 'false',
+                            resolutionConfig: m.gate.resolutionConfig || getDefaultResolutionConfig()
+                        } : { type: 'none', resolutionConfig: getDefaultResolutionConfig() },
                         // Pre-fill draftMethod so Hoisted UI works immediately without clicking "Edit"
                         draftMethod: existingData ? JSON.parse(JSON.stringify(existingData)) : undefined
                     };
@@ -432,13 +459,14 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
 
         try {
             // --- SANITIZATION HELPERS ---
-            // These ensure empty strings/undefined become valid 0s or defaults before DB save.
+            // These ensure empty strings/undefined become valid numbers/defaults before DB save,
+            // preventing mathematical layout errors in the Host engine.
             
             const sanitizeStyle = (style: any) => {
                 if (!style) return {};
                 const s = { ...style };
-                // Numeric fields to force to 0 if empty/invalid
-                ['textSpacing', 'methodSpacing', 'buttonSpacing', 'paddingTop', 'paddingBottom', 'paddingX', 'strokeWidth', 'boxShadowOpacity', 'fieldSpacing', 'iconSpacing', 'size', 'fieldBorderRadius'].forEach(k => {
+                // Expanded list to cover Button Configs and Resolution Routing fields
+                ['textSpacing', 'methodSpacing', 'buttonSpacing', 'paddingTop', 'paddingBottom', 'paddingX', 'paddingVertical', 'paddingHorizontal', 'borderRadius', 'customWidth', 'strokeWidth', 'boxShadowOpacity', 'fieldSpacing', 'iconSpacing', 'size', 'fieldBorderRadius'].forEach(k => {
                     if (k in s) s[k] = (s[k] === '' || s[k] === null || s[k] === undefined || isNaN(Number(s[k]))) ? 0 : Number(s[k]);
                 });
                 // Icon Size special case (default 40)
@@ -452,14 +480,36 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
             const sanitizeMask = (mask: any) => {
                 if (!mask) return undefined;
                 const m = { ...mask };
-                // Top level numbers
+                // Top level mask numbers
                 ['strokeWidth', 'paddingTop', 'paddingBottom', 'paddingX', 'spacing'].forEach(k => {
                     if (k in m) m[k] = (m[k] === '' || m[k] === null || m[k] === undefined || isNaN(Number(m[k]))) ? 0 : Number(m[k]);
                 });
-                // Ensure nested style objects exist and are clean (though masks usually use strings for colors)
-                m.style = m.style || {};
-                m.lightStyle = m.lightStyle || {};
+                // Pass inner styles through the standard style sanitizer to catch numbers like boxShadowOpacity
+                if (m.style) m.style = sanitizeStyle(m.style);
+                if (m.lightStyle) m.lightStyle = sanitizeStyle(m.lightStyle);
                 return m;
+            };
+
+            const sanitizeResolutionConfig = (config: any) => {
+                if (!config) return undefined;
+                const c = { ...config };
+                
+                c.playAgainTargetIndex = Number(c.playAgainTargetIndex) || 0;
+                
+                if (c.transition) {
+                    c.transition = { ...c.transition };
+                    c.transition.duration = Number(c.transition.duration) || 0.5;
+                    
+                    if (c.transition.buttonConfig) c.transition.buttonConfig = sanitizeStyle(c.transition.buttonConfig);
+                    if (c.transition.buttonStyle) c.transition.buttonStyle = sanitizeStyle(c.transition.buttonStyle);
+                    if (c.transition.lightButtonStyle) c.transition.lightButtonStyle = sanitizeStyle(c.transition.lightButtonStyle);
+                }
+                
+                if (c.secondaryButtonConfig) c.secondaryButtonConfig = sanitizeStyle(c.secondaryButtonConfig);
+                if (c.secondaryButtonStyle) c.secondaryButtonStyle = sanitizeStyle(c.secondaryButtonStyle);
+                if (c.lightSecondaryButtonStyle) c.lightSecondaryButtonStyle = sanitizeStyle(c.lightSecondaryButtonStyle);
+                
+                return c;
             };
 
             // --- PROCESS METHODS ---
@@ -514,13 +564,15 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                 if (m.showContentBelow && m.contentBelow) methodObj.contentBelow = m.contentBelow;
 
                 if (m.gate && m.gate.type !== 'none') {
-                    // Sanitize Gate Mask Config
+                    // Sanitize Gate Mask Config & Resolution Config
                     const cleanGateMask = m.gate.maskConfig ? sanitizeMask(m.gate.maskConfig) : undefined;
+                    const cleanResolutionConfig = m.gate.resolutionConfig ? sanitizeResolutionConfig(m.gate.resolutionConfig) : undefined;
 
                     if (m.gate.type === 'point_threshold' || m.gate.type === 'point_purchase') {
                          methodObj.gate = { 
                              type: m.gate.type,
-                             ...(cleanGateMask ? { maskConfig: cleanGateMask } : {})
+                             ...(cleanGateMask ? { maskConfig: cleanGateMask } : {}),
+                             ...(cleanResolutionConfig ? { resolutionConfig: cleanResolutionConfig } : {})
                          };
                     } else if (m.gate.type === 'on_success' && m.gate.methodInstanceId) {
                         const rawReplace = (m.gate as any).replacePrerequisite;
@@ -553,8 +605,15 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                 validSpacing = 0;
             }
 
+            const existingNames = new Set(
+                allConversionScreens
+                    .filter(s => s.id !== initialScreen?.id)
+                    .map(s => s.name)
+            );
+            const finalName = ensureUniqueName(data.name, existingNames);
+
             const screenData: any = {
-                name: data.name,
+                name: finalName,
                 layout: 'single_column',
                 style: {
                     width: validWidth,
@@ -585,8 +644,8 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
         <div style={{ display: 'flex', height: '650px', gap: '2rem', overflow: 'hidden' }}>
             
             {/* LEFT: BUILDER - Scrolls independently */}
-            <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: '1rem', height: '100%' }}>
-                <button 
+            <div id="screen-builder-scroll-container" style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: '1rem', height: '100%', overflowAnchor: 'none' }}>
+                <button
                     type="button" 
                     onClick={onCancel}
                     style={{
@@ -767,7 +826,7 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                         });
 
                         return (
-                            <div key={field.id} style={{ border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#fff', overflow: 'hidden', marginBottom: '1rem' }}>
+                            <div key={field.id} id={`method-card-${index}`} style={{ border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#fff', overflow: 'hidden', marginBottom: '1rem' }}>
                                 
                                 {/* HEADER (Always Visible) */}
                                 <div 
@@ -1001,19 +1060,17 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                                         const type = watch(`methods.${index}.draftMethod.discountType`);
                                                                         const max = type === 'percentage' ? 100 : undefined;
                                                                         return (
-                                                                            <input 
-                                                                                type="number" step="0.01" 
-                                                                                min="0" max={max}
-                                                                                value={field.value ?? ''}
-                                                                                onChange={e => {
-                                                                                    const val = e.target.value;
-                                                                                    if (val === '') field.onChange('');
-                                                                                    else {
-                                                                                        const num = Number(val);
-                                                                                        if (max && num > max) return;
-                                                                                        if (num < 0) return;
-                                                                                        field.onChange(num);
-                                                                                    }
+                                                                            <SmartNumberInput 
+                                                                                step="0.01" 
+                                                                                min={0} max={max}
+                                                                                fallbackValue={0}
+                                                                                value={field.value ?? 0}
+                                                                                onChange={val => {
+                                                                                    handleTouch(); // Ensures preview branches to draft properly
+                                                                                    let num = val;
+                                                                                    if (max && num > max) num = max;
+                                                                                    if (num < 0) num = 0;
+                                                                                    field.onChange(num);
                                                                                 }}
                                                                                 style={styles.input} 
                                                                             />
@@ -1031,12 +1088,14 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                                     type="checkbox" 
                                                                     {...register(`methods.${index}.draftMethod.clickToReveal`, {
                                                                         onChange: (e) => {
+                                                                            handleTouch(); // Force branch to draft
                                                                             if (e.target.checked) {
                                                                                 // 1. Text & Icon Defaults
-                                                                                setValue(`methods.${index}.draftMethod.maskConfig.headline`, "Click to Reveal the Coupon Code");
-                                                                                setValue(`methods.${index}.draftMethod.maskConfig.showIcon`, true);
-                                                                                
-                                                                                // 2. Color Defaults based on Scope
+                                                                            setValue(`methods.${index}.draftMethod.maskConfig.headline`, "Click to Reveal the Coupon Code");
+                                                                            setValue(`methods.${index}.draftMethod.maskConfig.showIcon`, true);
+                                                                            setValue(`methods.${index}.draftMethod.maskConfig.codeHeadline`, "REVEAL");
+                                                                            
+                                                                            // 2. Color Defaults based on Scope
                                                                                 const currentScope = getValues(`methods.${index}.draftMethod.revealScope`);
                                                                                 const maskPrefix = `methods.${index}.draftMethod.maskConfig`;
 
@@ -1059,11 +1118,21 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                             </label>
                                                             <button 
                                                                 type="button" 
-                                                                onClick={() => setPreviewRefreshKey(prev => prev + 1)} 
-                                                                title="Reset Preview to test reveal" 
-                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                                onClick={() => setRevealResetTrigger({ instanceId: getValues(`methods.${index}.instanceId`), timestamp: Date.now() })} 
+                                                                title="Reset Preview to test reveal"
+                                                                style={{
+                                                                    background: 'none',
+                                                                    border: 'none',
+                                                                    cursor: 'pointer',
+                                                                    color: '#0866ff',
+                                                                    fontSize: '0.85rem',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '0.25rem',
+                                                                    padding: 0
+                                                                }}
                                                             >
-                                                                <span style={{ fontSize: '1.2rem' }}>↻</span>
+                                                                <span style={{ fontSize: '1.1rem' }}>↻</span> Reset Reveal
                                                             </button>
                                                         </div>
 
@@ -1075,6 +1144,7 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                                         <select 
                                                                             {...register(`methods.${index}.draftMethod.revealScope`, {
                                                                                 onChange: (e) => {
+                                                                                    handleTouch(); // Force branch to draft
                                                                                     const val = e.target.value;
                                                                                     const maskPrefix = `methods.${index}.draftMethod.maskConfig`;
 
@@ -1086,6 +1156,8 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                                                         // Light Theme (Dark/White)
                                                                                         setValue(`${maskPrefix}.lightStyle.backgroundColor`, "#1a1a1a");
                                                                                         setValue(`${maskPrefix}.lightStyle.textColor`, "#ffffff");
+                                                                                        // Inject Short Headline into the correct variable
+                                                                                        setValue(`${maskPrefix}.codeHeadline`, "REVEAL");
                                                                                     } else {
                                                                                         // Full Reveal Defaults
                                                                                         
@@ -1111,6 +1183,7 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                                 <MaskConfigurationForm 
                                                                     register={register}
                                                                     control={control}
+                                                                    setValue={setValue}
                                                                     prefix={`methods.${index}.draftMethod.maskConfig`}
                                                                     defaultHeadline="Click to Reveal the Coupon Code"
                                                                     isCodeOnlyScope={watch(`methods.${index}.draftMethod.revealScope`) === 'code_only'}
@@ -1172,12 +1245,58 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                 );
                                             })()}
 
+                                            {/* --- HOISTED LINK REDIRECT FIELDS (Quick Access) --- */}
+                                            {(() => {
+                                                const draft = watch(`methods.${index}.draftMethod`);
+                                                if (!draft || draft.type !== 'link_redirect') return null;
+
+                                                const handleTouch = () => {
+                                                    const current = getValues(`methods.${index}`);
+                                                    if (!current.isCreatingNew) {
+                                                        setValue(`methods.${index}.isCreatingNew`, true);
+                                                        setValue(`methods.${index}.methodId`, ''); 
+                                                    }
+                                                };
+
+                                                return (
+                                                    <div style={{ marginTop: '1rem', padding: '1.5rem', backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '8px' }}>
+                                                        <h4 style={{ ...styles.h4, marginTop: 0, marginBottom: '1rem', borderBottom: '1px solid #eee', paddingBottom: '0.5rem' }}>Destination</h4>
+                                                        <div style={styles.configItem}>
+                                                            <label>Destination URL</label>
+                                                            <input type="url" placeholder="https://..." {...register(`methods.${index}.draftMethod.url`, { onChange: handleTouch })} style={styles.input} />
+                                                        </div>
+                                                        <div style={styles.configItem}>
+                                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                                                <input type="checkbox" {...register(`methods.${index}.draftMethod.utmEnabled`, { onChange: handleTouch })} />
+                                                                <span><strong>Auto-Append UTM Parameters</strong></span>
+                                                            </label>
+                                                        </div>
+                                                        <div style={{ marginTop: '1.5rem', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
+                                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>Target Window</label>
+                                                            <div style={{ display: 'flex', gap: '1.5rem' }}>
+                                                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                                                    <input type="radio" value="true" {...register(`methods.${index}.draftMethod.openInNewTab`, { onChange: handleTouch })} checked={String(watch(`methods.${index}.draftMethod.openInNewTab`)) === 'true'} />
+                                                                    New Tab
+                                                                </label>
+                                                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                                                    <input type="radio" value="false" {...register(`methods.${index}.draftMethod.openInNewTab`, { onChange: handleTouch })} checked={String(watch(`methods.${index}.draftMethod.openInNewTab`)) === 'false'} />
+                                                                    Same Tab
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
+
                                             {/* 3. Edit / Customize Button */}
                                             {(watch(`methods.${index}.methodId`) || watch(`methods.${index}.isCreatingNew`)) && (
                                                 <div style={{ marginTop: '1rem' }}>
                                                     <button 
                                                         type="button" 
                                                         onClick={() => {
+                                                            const scrollContainer = document.getElementById('screen-builder-scroll-container');
+                                                            const currentScroll = scrollContainer?.scrollTop;
+
                                                             const current = getValues(`methods.${index}`);
                                                             if (!current.isCreatingNew && !current.isExpanded) {
                                                                 const originalId = current.methodId;
@@ -1190,10 +1309,20 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                                         methodId: '',
                                                                         draftMethod: { ...originalData }
                                                                     });
-                                                                    return;
                                                                 }
+                                                            } else {
+                                                                update(index, { ...current, isExpanded: !current.isExpanded });
                                                             }
-                                                            update(index, { ...current, isExpanded: !current.isExpanded });
+
+                                                            // Force restore scroll position to prevent browser/Quill from jumping
+                                                            if (scrollContainer && currentScroll !== undefined) {
+                                                                setTimeout(() => {
+                                                                    scrollContainer.scrollTop = currentScroll;
+                                                                }, 0);
+                                                                setTimeout(() => {
+                                                                    scrollContainer.scrollTop = currentScroll;
+                                                                }, 50); // Double safety net for React render cycle completion
+                                                            }
                                                         }} 
                                                         style={watch(`methods.${index}.isExpanded`) ? { ...styles.secondaryButton, backgroundColor: '#e4e6eb', color: '#666' } : styles.secondaryButton}
                                                     >
@@ -1226,6 +1355,12 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                         hideSocialConfiguration={true}
                                                         hideContentSection={watch(`methods.${index}.draftMethod.type`) === 'coupon_display'}
                                                         hideInternalName={true}
+                                                        hideDestinationConfiguration={true}
+                                                        previewIsPlaying={previewIsPlaying}
+                                                        hasStartedPlaying={hasStartedPlaying}
+                                                        onTogglePlay={() => { setPreviewIsPlaying(!previewIsPlaying); setHasStartedPlaying(true); }}
+                                                        onResetPreview={() => { setPreviewRefreshKey(prev => prev + 1); setPreviewIsPlaying(false); setHasStartedPlaying(false); }}
+                                                        onResetReveal={() => setRevealResetTrigger({ instanceId: getValues(`methods.${index}.instanceId`), timestamp: Date.now() })}
                                                     />
                                                 </div>
                                             )}
@@ -1235,7 +1370,7 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                 <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #eee' }}>
                                                     <div style={styles.configItem}>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                            <label>Gate Type (Lock this method?)</label>
+                                                            <label>Gate Type</label>
                                                             {/* REFRESH BUTTON */}
                                                             <button
                                                                 type="button"
@@ -1273,13 +1408,35 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                                     if (val === 'point_threshold') {
                                                                         setValue(`${maskPath}.headline`, "Earn enough points to unlock the reward!");
                                                                         setValue(`${maskPath}.showIcon`, true);
+                                                                        setValue(`${maskPath}.showPointLabel`, true);
+                                                                        setValue(`${maskPath}.strokeStyle`, 'none');
                                                                     } else if (val === 'point_purchase') {
-                                                                        setValue(`${maskPath}.headline`, "Use your points to purchase a reward!");
+                                                                        setValue(`${maskPath}.headline`, "Exclusive Reward");
+                                                                        setValue(`${maskPath}.body`, "Spend your points to unlock this reward.");
                                                                         setValue(`${maskPath}.showIcon`, true);
+                                                                        setValue(`${maskPath}.unaffordableHeadline`, "Keep Playing!");
+                                                                        setValue(`${maskPath}.unaffordableBody`, "You don't have enough points yet.");
+                                                                        setValue(`${maskPath}.unaffordableShowIcon`, true);
+                                                                        setValue(`${maskPath}.purchaseButtonText`, "Buy for {{cost}} Points");
+                                                                        setValue(`${maskPath}.showPointLabel`, true); // Default label to true
+                                                                        setValue(`${maskPath}.strokeStyle`, 'none'); // Default stroke to none
+                                                                        
+                                                                        // Initialize Resolution Routing Defaults so it overrides the fallback button
+                                                                        setValue(`methods.${index}.gate.resolutionConfig`, {
+                                                                            isPlayAgainEnabled: true,
+                                                                            isContinueEnabled: false,
+                                                                            playAgainBehavior: 'keep_points',
+                                                                            transition: {
+                                                                                type: 'zoom_in',
+                                                                                duration: 0.5,
+                                                                                buttonConfig: { text: "Play Again to Earn Points" }
+                                                                            }
+                                                                        });
                                                                     } else if (val === 'on_success') {
-                                                                        // Set default for success gate (visible when 'locked_mask' is chosen later)
-                                                                        setValue(`${maskPath}.headline`, "Complete the previous step to unlock this reward!");
+                                                                        setValue(`${maskPath}.headline`, "Unlock by completing the prior step.");
+                                                                        setValue(`${maskPath}.body`, "");
                                                                         setValue(`${maskPath}.showIcon`, true);
+                                                                        setValue(`${maskPath}.strokeStyle`, 'none');
                                                                     }
                                                                 }
                                                             })} 
@@ -1350,40 +1507,48 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                         </div>
                                                     )}
 
-                                                    {/* Point Threshold Simulation Controls */}
-                                                    {watch(`methods.${index}.gate.type`) === 'point_threshold' && (
+                                                    {/* Point Simulation Controls */}
+                                                    {(watch(`methods.${index}.gate.type`) === 'point_threshold' || watch(`methods.${index}.gate.type`) === 'point_purchase') && (
                                                         <div style={{ marginTop: '1rem', padding: '1rem', border: '1px solid #ddd', borderRadius: '8px', background: '#fafafa' }}>
                                                             <h6 style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>Preview Simulation</h6>
                                                             
-                                                            <div style={{ marginBottom: '1rem' }}>
-                                                                <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between' }}>
-                                                                    Progress
-                                                                    <span>{simProgress}%</span>
-                                                                </label>
-                                                                <input 
-                                                                    type="range" 
-                                                                    min="0" max="100" 
-                                                                    value={simProgress} 
-                                                                    onChange={(e) => setSimProgress(Number(e.target.value))}
-                                                                    style={{ width: '100%' }} 
-                                                                />
-                                                            </div>
-
-                                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
-                                                                <input type="checkbox" {...register(`methods.${index}.gate.maskConfig.showPointLabel`)} />
-                                                                Include "Point Label" (e.g. 500 / 1000 Points)
-                                                            </label>
-
-                                                            {watch(`methods.${index}.gate.maskConfig.showPointLabel`) && (
-                                                                <div style={styles.configItem}>
-                                                                    <label style={{ fontSize: '0.8rem' }}>Simulated "Required Points"</label>
-                                                                    <input 
-                                                                        type="number" 
-                                                                        value={simReqPoints} 
-                                                                        onChange={(e) => setSimReqPoints(Number(e.target.value))}
-                                                                        style={styles.input} 
-                                                                    />
+                                                            {previewGateState === 'unlocked' ? (
+                                                                <div style={{ padding: '0.75rem', backgroundColor: '#fff3cd', color: '#856404', borderRadius: '4px', border: '1px solid #ffeeba', fontSize: '0.85rem' }}>
+                                                                    <strong>Simulation Disabled:</strong> You are currently in "Force Unlock All" mode. Switch back to "Evaluate Locks" in the preview toolbar to test gate logic and thresholds.
                                                                 </div>
+                                                            ) : (
+                                                                <>
+                                                                    <div style={{ marginBottom: '1rem' }}>
+                                                                        <label style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between' }}>
+                                                                            Progress
+                                                                            <span>{simProgress}%</span>
+                                                                        </label>
+                                                                        <input 
+                                                                            type="range" 
+                                                                            min="0" max="100" 
+                                                                            value={simProgress} 
+                                                                            onChange={(e) => setSimProgress(Number(e.target.value))}
+                                                                            style={{ width: '100%' }} 
+                                                                        />
+                                                                    </div>
+
+                                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
+                                                                        <input type="checkbox" {...register(`methods.${index}.gate.maskConfig.showPointLabel`)} />
+                                                                        Include "Point Label" (e.g. 500 / 1000 Points)
+                                                                    </label>
+
+                                                                    {watch(`methods.${index}.gate.maskConfig.showPointLabel`) && (
+                                                                        <div style={styles.configItem}>
+                                                                            <label style={{ fontSize: '0.8rem' }}>Simulated "Required Points"</label>
+                                                                            <SmartNumberInput 
+                                                                                value={simReqPoints} 
+                                                                                onChange={(val) => setSimReqPoints(val)}
+                                                                                fallbackValue={1000}
+                                                                                style={styles.input} 
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </>
                                                             )}
                                                         </div>
                                                     )}
@@ -1410,11 +1575,30 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                                                 <MaskConfigurationForm 
                                                                     register={register}
                                                                     control={control}
+                                                                    setValue={setValue}
                                                                     prefix={`methods.${index}.gate.maskConfig`}
                                                                     defaultHeadline={gType === 'point_purchase' ? "Purchase Reward" : "LOCKED"}
                                                                     maskType={gType as any} // Pass the gate type to control color pickers
                                                                 />
                                                             </div>
+                                                        );
+                                                    })()}
+                                                    
+                                                    {/* --- RESOLUTION ROUTING EDITOR --- */}
+                                                    {(() => {
+                                                        const gType = watch(`methods.${index}.gate.type`);
+                                                        if (gType !== 'point_purchase' && gType !== 'point_threshold') return null;
+
+                                                        return (
+                                                            <GateResolutionEditor 
+                                                                index={index}
+                                                                register={register}
+                                                                control={control}
+                                                                watch={watch}
+                                                                setValue={setValue}
+                                                                getValues={getValues}
+                                                                allConversionScreens={allConversionScreens}
+                                                            />
                                                         );
                                                     })()}
                                                 </div>
@@ -1478,8 +1662,10 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                             <button 
                                 type="button" 
                                 onClick={() => {
-                                    // 1. Collapse all existing methods to save space
                                     const currentMethods = getValues('methods');
+                                    const newIndex = currentMethods.length; // The index of the new card being added
+                                    
+                                    // 1. Collapse all existing methods to save space
                                     const collapsedMethods = currentMethods.map(m => ({ ...m, isSectionCollapsed: true }));
                                     
                                     // 2. Update the list with collapsed items + new open item
@@ -1494,9 +1680,23 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
                                             contentAbove: '', 
                                             showContentBelow: false, 
                                             contentBelow: '', 
-                                            gate: { type: 'none' } 
+                                            gate: { type: 'none', resolutionConfig: getDefaultResolutionConfig() } 
                                         }
                                     ]);
+
+                                    // 3. Frame the new method card in the viewport
+                                    setTimeout(() => {
+                                        const scrollContainer = document.getElementById('screen-builder-scroll-container');
+                                        const newCard = document.getElementById(`method-card-${newIndex}`);
+                                        
+                                        if (scrollContainer && newCard) {
+                                            const containerRect = scrollContainer.getBoundingClientRect();
+                                            const cardRect = newCard.getBoundingClientRect();
+                                            
+                                            // Set the scroll position so the top of the new card is 20px from the top of the container
+                                            scrollContainer.scrollTop += (cardRect.top - containerRect.top) - 20;
+                                        }
+                                    }, 50); // 50ms ensures React has fully painted the collapsed states and the new card
                                 }} 
                                 style={{ ...styles.secondaryButton, marginTop: '1rem' }}
                             >
@@ -1614,12 +1814,18 @@ export const ConversionScreenBuilder: React.FC<ConversionScreenBuilderProps> = (
             {/* RIGHT: PREVIEW - Fits nicely, doesn't force page scroll */}
             <div style={{ flex: 1, minWidth: 0, height: '100%', backgroundColor: '#f8f9fa', borderRadius: '8px', padding: '1rem', border: '1px solid #eee' }}>
                 <StaticConversionPreview 
-                    key={previewRefreshKey} 
                     screen={previewScreen} 
                     themeMode={previewTheme}
                     onThemeChange={setPreviewTheme}
                     orientation={previewOrientation}
                     onOrientationChange={setPreviewOrientation}
+                    previewIsPlaying={previewIsPlaying}
+                    previewGateState={previewGateState}
+                    onPreviewGateStateChange={setPreviewGateState}
+                    revealResetTrigger={revealResetTrigger}
+                    // Pass the refresh key down so the host can use it internally
+                    refreshKey={previewRefreshKey}
+                    onRefresh={() => setPreviewRefreshKey(prev => prev + 1)}
                     // Calculate simulated score based on slider %
                     previewTotalScore={Math.floor(simReqPoints * (simProgress / 100))}
                     // Construct a map of instanceId -> simulatedCost

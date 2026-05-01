@@ -10,20 +10,15 @@ interface TransitionSettingsEditorProps {
     transition: TransitionConfig;
     defaultButtonText?: string;
     onChange: (transition: TransitionConfig) => void;
+    autoWarningMessage?: string | React.ReactNode;
 }
 
-export const TransitionSettingsEditor: React.FC<TransitionSettingsEditorProps> = ({ transition, defaultButtonText, onChange }) => {
+export const TransitionSettingsEditor: React.FC<TransitionSettingsEditorProps> = ({ transition, defaultButtonText, onChange, autoWarningMessage }) => {
     const currentConfig = transition;
     
     const type = currentConfig.type;
     const interactionMethod = currentConfig.interactionMethod;
     const clickFormat = currentConfig.clickFormat;
-
-    const handleNumberChange = (value: string): number | '' => {
-        if (value === '') return '';
-        const num = Number(value);
-        return (!isNaN(num) && num >= 0) ? num : '';
-    };
 
     const handleTransitionChange = (key: string, value: any) => {
         const newTransition = { ...currentConfig, [key]: value };
@@ -68,6 +63,13 @@ export const TransitionSettingsEditor: React.FC<TransitionSettingsEditorProps> =
                     <option value="auto">Auto-Transition (Timer)</option>
                     <option value="interact">Interact to Continue</option>
                 </select>
+                
+                {/* INJECTED WARNING MESSAGE FOR AUTO MODE */}
+                {(type === 'auto' && autoWarningMessage) && (
+                    <div style={{ marginTop: '0.75rem', padding: '0.75rem', backgroundColor: '#fff3cd', color: '#856404', borderRadius: '4px', border: '1px solid #ffeeba', fontSize: '0.85rem' }}>
+                        {autoWarningMessage}
+                    </div>
+                )}
             </div>
 
             {type === 'auto' ? (
@@ -78,10 +80,7 @@ export const TransitionSettingsEditor: React.FC<TransitionSettingsEditorProps> =
                             min={1} max={60}
                             fallbackValue={3}
                             value={currentConfig.autoDuration ?? 3}
-                            onChange={val => handleTransitionChange('autoDuration', val)}
-                            onBlur={() => {
-                                if (currentConfig.autoDuration === 0) handleTransitionChange('autoDuration', 3);
-                            }}
+                            onChange={val => handleTransitionChange('autoDuration', Math.min(60, Math.max(1, val)))}
                             style={styles.input}
                         />
                     </div>

@@ -28,6 +28,7 @@ import {
 const appId = import.meta.env.VITE_ALGOLIA_APP_ID;
 const searchKey = import.meta.env.VITE_ALGOLIA_SEARCH_KEY;
 const searchClient = algoliasearch.algoliasearch(appId, searchKey);
+const algoliaPrefix = import.meta.env.VITE_ALGOLIA_INDEX_PREFIX || '';
 
 // --- SEARCH COMPONENTS ---
 
@@ -78,7 +79,7 @@ const LocalMethodList = ({
   handlePreview,
   handleDeleteMultiple,
 }: {
-  filters: { [key: string]: string };
+  filters: { [key: string]: any };
   handleDuplicate: (item: ConversionMethod) => void;
   handleEdit: (item: ConversionMethod) => void;
   handleDelete: (id: string) => void;
@@ -95,10 +96,47 @@ const LocalMethodList = ({
         const computedState = getMethodComputedState(item, allConversionScreens, macrogames, deliveryContainers, campaigns);
         if (computedState !== filters.computedStatusFilter) return false;
       }
-      // Type Filter
+      
+      // Type Filter & Sub-filters
       if (filters.typeFilter && filters.typeFilter !== 'All') {
         if (item.type !== filters.typeFilter) return false;
+
+        if (filters.typeFilter === 'coupon_display' && filters.couponRevealType && filters.couponRevealType !== 'All') {
+            let revType = 'none';
+            if ((item as any).clickToReveal) {
+                revType = (item as any).revealScope === 'code_only' ? 'code_only' : 'entire_card';
+            }
+            if (revType !== filters.couponRevealType) return false;
+        }
+
+        if (filters.typeFilter === 'link_redirect' && filters.linkTransitionType && filters.linkTransitionType !== 'All') {
+            let transType = 'none';
+            const t = (item as any).transition;
+            if (t) {
+                if (t.type === 'auto') transType = 'auto';
+                else if (t.interactionMethod === 'click' && t.clickFormat === 'button') transType = 'button';
+                else transType = 'disclaimer';
+            }
+            if (transType !== filters.linkTransitionType) return false;
+        }
+
+        if (filters.typeFilter === 'form_submit' && filters.numFields && filters.numFields !== 'All') {
+            const count = (item as any).fields?.length || 0;
+            if (filters.numFields === '5+') {
+                if (count < 5) return false;
+            } else {
+                if (count !== Number(filters.numFields)) return false;
+            }
+        }
+
+        if (filters.typeFilter === 'social_follow' && filters.socialPlatforms && filters.socialPlatforms.length > 0) {
+            const activePlatforms = (item as any).links?.filter((l: any) => l.isEnabled).map((l: any) => l.platform) || [];
+            // AND condition: item must have ALL selected platforms
+            const hasAll = filters.socialPlatforms.every((p: string) => activePlatforms.includes(p));
+            if (!hasAll) return false;
+        }
       }
+
       return true;
     });
   }, [allConversionMethods, filters, allConversionScreens, macrogames, deliveryContainers, campaigns]);
@@ -180,12 +218,14 @@ const LocalScreenList = ({
   handleDuplicate,
   handleEdit,
   handleDelete,
+  handlePreview,
   handleDeleteMultiple,
 }: {
   filters: { [key: string]: any }; 
   handleDuplicate: (item: ConversionScreen) => void;
   handleEdit: (item: ConversionScreen) => void;
   handleDelete: (id: string) => void;
+  handlePreview: (item: ConversionScreen) => void;
   handleDeleteMultiple: (ids: string[]) => void;
 }) => {
   const { allConversionScreens, macrogames, deliveryContainers, campaigns, allConversionMethods } = useData();
@@ -202,10 +242,30 @@ const LocalScreenList = ({
       // Dynamic Method Types & Specific Methods Filter
       const allowedMethodIds = getAllowedMethodIds(filters, allConversionMethods);
       if (allowedMethodIds !== null) {
-          if (allowedMethodIds.length === 0) return false; // Filtered to a type with no methods created
+          if (allowedMethodIds.length === 0) return false; 
           const screenMethodIds = item.methods?.map(m => m.methodId) || [];
           const hasMatch = allowedMethodIds.some(id => screenMethodIds.includes(id));
           if (!hasMatch) return false;
+      }
+
+      // Gate Filters
+      if (filters.gateTypes && filters.gateTypes.length > 0) {
+          if (filters.gateTypes.includes('none')) {
+              const screenGateCount = (item.methods || []).filter((m: any) => m.gate && m.gate.type !== 'none').length;
+              if (screenGateCount > 0) return false;
+          } else {
+              const screenGateTypes = (item.methods || []).map((m: any) => m.gate?.type).filter((t: string) => t && t !== 'none');
+              const hasAllGates = filters.gateTypes.every((gate: string) => screenGateTypes.includes(gate));
+              if (!hasAllGates) return false;
+          }
+      }
+
+      if (filters.numGates && filters.numGates !== 'All') {
+          if (filters.numGates === '4+') {
+              if (screenGateCount < 4) return false;
+          } else {
+              if (screenGateCount !== Number(filters.numGates)) return false;
+          }
       }
 
       return true;
@@ -261,6 +321,7 @@ const LocalScreenList = ({
           </div>
         </div>
         <div style={styles.rewardActions}>
+          <button onClick={() => handlePreview(item)} style={styles.previewButton}>Preview</button>
           <button onClick={() => handleDuplicate(item)} style={styles.editButton}>Duplicate</button>
           <button onClick={() => handleEdit(item)} style={styles.editButton}>Edit</button>
           <button onClick={() => handleDelete(item.id)} style={styles.deleteButton}>Delete</button>
@@ -296,7 +357,7 @@ const AlgoliaMethodList = ({
   handleDeleteMultiple,
 }: {
   searchTerm: string;
-  filters: { [key: string]: string };
+  filters: { [key: string]: any };
   handleDuplicate: (item: ConversionMethod) => void;
   handleEdit: (item: ConversionMethod) => void;
   handleDelete: (id: string) => void;
@@ -312,9 +373,30 @@ const AlgoliaMethodList = ({
       const algoliaFilters = [];
       if (filters.typeFilter && filters.typeFilter !== 'All') {
         algoliaFilters.push(`type:"${filters.typeFilter}"`);
+        
+        // Dynamic Sub-filters based on type
+        if (filters.typeFilter === 'coupon_display' && filters.couponRevealType && filters.couponRevealType !== 'All') {
+            algoliaFilters.push(`couponRevealType:"${filters.couponRevealType}"`);
+        }
+        if (filters.typeFilter === 'link_redirect' && filters.linkTransitionType && filters.linkTransitionType !== 'All') {
+            algoliaFilters.push(`linkTransitionType:"${filters.linkTransitionType}"`);
+        }
+        if (filters.typeFilter === 'form_submit' && filters.numFields && filters.numFields !== 'All') {
+            if (filters.numFields === '5+') {
+                algoliaFilters.push(`numFields >= 5`);
+            } else {
+                algoliaFilters.push(`numFields = ${filters.numFields}`);
+            }
+        }
+        if (filters.typeFilter === 'social_follow' && filters.socialPlatforms && filters.socialPlatforms.length > 0) {
+            // Algolia Multiselect AND condition: each platform must exist in the array
+            filters.socialPlatforms.forEach((platform: string) => {
+                algoliaFilters.push(`socialPlatforms:"${platform}"`);
+            });
+        }
       }
       return algoliaFilters.join(' AND ');
-    }, [filters.typeFilter]),
+    }, [filters]),
   });
 
   const { hits } = useHits();
@@ -401,6 +483,7 @@ const AlgoliaScreenList = ({
   handleDuplicate,
   handleEdit,
   handleDelete,
+  handlePreview,
   handleDeleteMultiple,
 }: {
   searchTerm: string;
@@ -408,6 +491,7 @@ const AlgoliaScreenList = ({
   handleDuplicate: (item: ConversionScreen) => void;
   handleEdit: (item: ConversionScreen) => void;
   handleDelete: (id: string) => void;
+  handlePreview: (item: ConversionScreen) => void;
   handleDeleteMultiple: (ids: string[]) => void;
 }) => {
   const { macrogames, deliveryContainers, campaigns, allConversionMethods } = useData();
@@ -422,11 +506,30 @@ const AlgoliaScreenList = ({
       const allowedMethodIds = getAllowedMethodIds(filters, allConversionMethods);
       if (allowedMethodIds !== null) {
           if (allowedMethodIds.length === 0) {
-              // Forced fail if they filtered to a type that has zero methods
               algoliaFilters.push(`methodIdList:"NONE_MATCH"`);
           } else {
               const idFilters = allowedMethodIds.map(id => `methodIdList:"${id}"`);
               algoliaFilters.push(`(${idFilters.join(' OR ')})`);
+          }
+      }
+
+      // Gate Filters
+      if (filters.gateTypes && filters.gateTypes.length > 0) {
+          if (filters.gateTypes.includes('none')) {
+              algoliaFilters.push(`numGates = 0`);
+          } else {
+              // AND condition: screen must have every selected gate type
+              filters.gateTypes.forEach((gate: string) => {
+                  algoliaFilters.push(`gateTypes:"${gate}"`);
+              });
+          }
+      }
+
+      if (filters.numGates && filters.numGates !== 'All') {
+          if (filters.numGates === '4+') {
+              algoliaFilters.push(`numGates >= 4`);
+          } else {
+              algoliaFilters.push(`numGates = ${filters.numGates}`);
           }
       }
       
@@ -491,6 +594,7 @@ const AlgoliaScreenList = ({
           </div>
         </div>
         <div style={styles.rewardActions}>
+          <button onClick={() => handlePreview(item)} style={styles.previewButton}>Preview</button>
           <button onClick={() => handleDuplicate(item)} style={styles.editButton}>Duplicate</button>
           <button onClick={() => handleEdit(item)} style={styles.editButton}>Edit</button>
           <button onClick={() => handleDelete(id)} style={styles.deleteButton}>Delete</button>
@@ -518,7 +622,7 @@ const AlgoliaScreenList = ({
 
 // --- MANAGER SECTIONS ---
 
-const MethodManager = () => {
+const MethodManager = ({ onBuilderToggle }: { onBuilderToggle: (isOpen: boolean) => void }) => {
   const {
     createConversionMethod,
     updateConversionMethod,
@@ -530,6 +634,10 @@ const MethodManager = () => {
   // "Builder" State
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   
+  useEffect(() => {
+      onBuilderToggle(isBuilderOpen);
+  }, [isBuilderOpen, onBuilderToggle]);
+
   // Modal States
   const [editingMethod, setEditingMethod] = useState<ConversionMethod | null>(null);
   const [previewingMethod, setPreviewingMethod] = useState<ConversionMethod | null>(null);
@@ -543,11 +651,90 @@ const MethodManager = () => {
   // Search State
   const [methodSearchKey, setMethodSearchKey] = useState(Date.now());
   const [methodSearchTerm, setMethodSearchTerm] = useState('');
-  const [methodFilters, setMethodFilters] = useState({ computedStatusFilter: 'All', typeFilter: 'All' });
+  const [methodFilters, setMethodFilters] = useState<Record<string, any>>({ 
+      computedStatusFilter: 'All', 
+      typeFilter: 'All' 
+  });
   const forceMethodRefresh = () => setMethodSearchKey(Date.now());
 
-  const handleMethodFilterChange = (key: string, value: string) => {
-    setMethodFilters((prev) => ({ ...prev, [key]: value }));
+  // --- Dynamic Method Filter Config ---
+  const methodFilterConfig: FilterConfig[] = useMemo(() => {
+        const configs: FilterConfig[] = [
+            { 
+                type: 'select', 
+                label: 'Status', 
+                stateKey: 'computedStatusFilter', 
+                options: [
+                    { value: 'All', label: 'All' }, 
+                    { value: 'live', label: 'Live' }, 
+                    { value: 'in_use', label: 'In Use (Not Live)' }, 
+                    { value: 'unused', label: 'Unused' },
+                    { value: 'error', label: 'Needs Attention' }
+                ] 
+            },
+            { 
+                type: 'select', 
+                label: 'Method Type', 
+                stateKey: 'typeFilter', 
+                options: ['All', ...CONVERSION_METHOD_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) }))] 
+            }
+        ];
+
+        // Conditional Sub-Filters based on Method Type
+        if (methodFilters.typeFilter === 'coupon_display') {
+            configs.push({
+                type: 'select', label: 'Reveal Mask', stateKey: 'couponRevealType',
+                options: [
+                    { value: 'All', label: 'All' },
+                    { value: 'entire_card', label: 'Full Coupon Cover' },
+                    { value: 'code_only', label: 'Code Only Cover' },
+                    { value: 'none', label: 'No Mask' }
+                ]
+            });
+        } else if (methodFilters.typeFilter === 'link_redirect') {
+            configs.push({
+                type: 'select', label: 'Transition Type', stateKey: 'linkTransitionType',
+                options: [
+                    { value: 'All', label: 'All' },
+                    { value: 'auto', label: 'Auto-Transition (Timer)' },
+                    { value: 'button', label: 'Button Click' },
+                    { value: 'disclaimer', label: 'Disclaimer Click' }
+                ]
+            });
+        } else if (methodFilters.typeFilter === 'form_submit') {
+            configs.push({
+                type: 'select', label: 'Number of Fields', stateKey: 'numFields',
+                options: ['All', '1', '2', '3', '4', '5+']
+            });
+        } else if (methodFilters.typeFilter === 'social_follow') {
+            configs.push({
+                type: 'multiselect', label: 'Included Platforms', stateKey: 'socialPlatforms',
+                options: [
+                    { value: 'facebook', label: 'Facebook' },
+                    { value: 'instagram', label: 'Instagram' },
+                    { value: 'linkedin', label: 'LinkedIn' },
+                    { value: 'tiktok', label: 'TikTok' },
+                    { value: 'x', label: 'X (Twitter)' },
+                    { value: 'youtube', label: 'YouTube' }
+                ]
+            });
+        }
+
+        return configs;
+  }, [methodFilters.typeFilter]);
+
+  const handleMethodFilterChange = (key: string, value: string | string[]) => {
+    setMethodFilters((prev) => {
+        const next = { ...prev, [key]: value };
+        // If changing the main type filter, clear out the irrelevant sub-filters
+        if (key === 'typeFilter') {
+            delete next.couponRevealType;
+            delete next.linkTransitionType;
+            delete next.numFields;
+            delete next.socialPlatforms;
+        }
+        return next;
+    });
   };
 
   // --- STANDARDIZED ACTION HANDLERS ---
@@ -628,107 +815,105 @@ const MethodManager = () => {
 
   return (
     <div>
-        {/* --- TOGGLE LOGIC: Show Button OR Builder (For Creation) --- */}
-        {!isBuilderOpen ? (
-            <button 
-                onClick={() => { setEditingMethod(null); setIsBuilderOpen(true); }}
-                style={{ ...styles.createButton, marginBottom: '2rem' }}
-            >
-                Create New Conversion Method
-            </button>
-        ) : (
-            <div style={{ marginBottom: '2rem', borderBottom: '1px solid #ddd', paddingBottom: '2rem', height: '650px' }}>
+        {isBuilderOpen ? (
+            <div style={{ height: 'calc(100vh - 150px)', minHeight: '650px', width: '100%' }}>
                 <ConversionMethodBuilder
-                    initialMethod={null} // Always null for creation mode here
+                    initialMethod={editingMethod}
                     onSave={() => { 
                         setIsBuilderOpen(false); 
+                        setEditingMethod(null);
                         forceMethodRefresh(); 
-                        setTimeout(() => document.getElementById('methods-list-header')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
                     }}
-                    onCancel={() => { setIsBuilderOpen(false); }}
+                    onCancel={() => { 
+                        setIsBuilderOpen(false); 
+                        setEditingMethod(null);
+                    }}
                 />
             </div>
-        )}
-
-        {/* --- LIST VIEW --- */}
-        {/* REFACTOR: Hybrid Architecture */}
-        
-        <div style={styles.filterContainer}>
-            {/* Standard Input instead of ConnectedSearchBox */}
-            <div style={styles.configItem}>
-                <label>Search</label>
-                <input
-                    type="text"
-                    placeholder="Search methods..."
-                    value={methodSearchTerm}
-                    onChange={(e) => setMethodSearchTerm(e.target.value)}
-                    style={styles.input}
-                />
-            </div>
-            <FilterBar
-            filters={[
-                { 
-                    type: 'select', 
-                    label: 'Status', 
-                    stateKey: 'computedStatusFilter', 
-                    options: [
-                        { value: 'All', label: 'All' }, 
-                        { value: 'live', label: 'Live' }, 
-                        { value: 'in_use', label: 'In Use (Not Live)' }, 
-                        { value: 'unused', label: 'Unused' },
-                        { value: 'error', label: 'Needs Attention' }
-                    ] 
-                },
-                { type: 'select', label: 'Method Type', stateKey: 'typeFilter', options: ['All', ...CONVERSION_METHOD_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ') }))] }
-            ]}
-            filterValues={methodFilters}
-            onFilterChange={handleMethodFilterChange}
-            onResetFilters={() => { setMethodFilters({ computedStatusFilter: 'All', typeFilter: 'All' }); setMethodSearchTerm(''); forceMethodRefresh(); }}
-            />
-        </div>
-        <h3 id="methods-list-header" style={styles.h3}>Existing Conversion Methods</h3>
-
-        {/* Conditional Rendering based on Search Term */}
-        {methodSearchTerm.trim().length > 0 ? (
-            <InstantSearch key={methodSearchKey} searchClient={searchClient} indexName="conversionMethods">
-                <AlgoliaMethodList
-                    searchTerm={methodSearchTerm}
-                    filters={methodFilters}
-                    handleDelete={handleDeleteMethod}
-                    handleDeleteMultiple={handleDeleteMultiple}
-                    handleDuplicate={async (item) => {
-                        try {
-                            const fullData = await getFullItem(item);
-                            await handleDuplicateMethod(fullData);
-                        } catch (e) { notifications.error("Failed to duplicate."); }
-                    }}
-                    handleEdit={async (item) => {
-                        const t = notifications.loading("Loading editor...");
-                        try {
-                            const fullData = await getFullItem(item);
-                            setEditingMethod(fullData);
-                        } catch (e) { notifications.error("Failed to load editor."); }
-                        finally { notifications.dismiss(t); }
-                    }}
-                    handlePreview={async (item) => {
-                         const t = notifications.loading("Loading preview...");
-                        try {
-                            const fullData = await getFullItem(item);
-                            setPreviewingMethod(fullData);
-                        } catch (e) { notifications.error("Failed to load preview."); }
-                        finally { notifications.dismiss(t); }
-                    }}
-                />
-            </InstantSearch>
         ) : (
-            <LocalMethodList
-                filters={methodFilters}
-                handleDelete={handleDeleteMethod}
-                handleDeleteMultiple={handleDeleteMultiple}
-                handleDuplicate={handleDuplicateMethod}
-                handleEdit={setEditingMethod}
-                handlePreview={setPreviewingMethod}
-            />
+            <>
+                <button 
+                    onClick={() => { setEditingMethod(null); setIsBuilderOpen(true); }}
+                    style={{ ...styles.createButton, marginBottom: '2rem' }}
+                >
+                    Create New Conversion Method
+                </button>
+
+                {/* --- LIST VIEW --- */}
+                <div style={styles.filterContainer}>
+                    <div style={styles.configItem}>
+                        <label>Search</label>
+                        <input
+                            type="text"
+                            placeholder="Search methods..."
+                            value={methodSearchTerm}
+                            onChange={(e) => setMethodSearchTerm(e.target.value)}
+                            style={styles.input}
+                        />
+                    </div>
+                    <FilterBar
+                        filters={methodFilterConfig}
+                        filterValues={{
+                            ...methodFilters,
+                            ...methodFilterConfig.reduce((acc, f) => {
+                                if (f.type === 'multiselect' && !methodFilters[f.stateKey]) {
+                                    acc[f.stateKey] = [];
+                                }
+                                return acc;
+                            }, {} as Record<string, any>)
+                        }}
+                        onFilterChange={handleMethodFilterChange}
+                        onResetFilters={() => { setMethodFilters({ computedStatusFilter: 'All', typeFilter: 'All' }); setMethodSearchTerm(''); forceMethodRefresh(); }}
+                    />
+                </div>
+                <h3 id="methods-list-header" style={styles.h3}>Existing Conversion Methods</h3>
+
+                {methodSearchTerm.trim().length > 0 ? (
+                    <InstantSearch key={methodSearchKey} searchClient={searchClient} indexName={`${algoliaPrefix}conversionMethods`}>
+                        <AlgoliaMethodList
+                            searchTerm={methodSearchTerm}
+                            filters={methodFilters}
+                            handleDelete={handleDeleteMethod}
+                            handleDeleteMultiple={handleDeleteMultiple}
+                            handleDuplicate={async (item) => {
+                                try {
+                                    const fullData = await getFullItem(item);
+                                    await handleDuplicateMethod(fullData);
+                                } catch (e) { notifications.error("Failed to duplicate."); }
+                            }}
+                            handleEdit={async (item) => {
+                                const t = notifications.loading("Loading editor...");
+                                try {
+                                    const fullData = await getFullItem(item);
+                                    setEditingMethod(fullData);
+                                    setIsBuilderOpen(true);
+                                } catch (e) { notifications.error("Failed to load editor."); }
+                                finally { notifications.dismiss(t); }
+                            }}
+                            handlePreview={async (item) => {
+                                 const t = notifications.loading("Loading preview...");
+                                try {
+                                    const fullData = await getFullItem(item);
+                                    setPreviewingMethod(fullData);
+                                } catch (e) { notifications.error("Failed to load preview."); }
+                                finally { notifications.dismiss(t); }
+                            }}
+                        />
+                    </InstantSearch>
+                ) : (
+                    <LocalMethodList
+                        filters={methodFilters}
+                        handleDelete={handleDeleteMethod}
+                        handleDeleteMultiple={handleDeleteMultiple}
+                        handleDuplicate={handleDuplicateMethod}
+                        handleEdit={(item) => {
+                            setEditingMethod(item);
+                            setIsBuilderOpen(true);
+                        }}
+                        handlePreview={setPreviewingMethod}
+                    />
+                )}
+            </>
         )}
 
         {/* --- PREVIEW MODAL --- */}
@@ -773,17 +958,7 @@ const MethodManager = () => {
             </div>
         </Modal>
 
-        {/* --- EDIT MODAL --- */}
-        <EditConversionModal
-            isOpen={!!editingMethod}
-            onClose={() => setEditingMethod(null)}
-            conversion={editingMethod}
-            onSaveSuccess={() => {
-                setEditingMethod(null);
-                forceMethodRefresh();
-            }}
-        />
-    </div>
+        </div>
   );
 };
 
@@ -868,7 +1043,7 @@ export const getAllowedMethodIds = (filters: Record<string, any>, allMethods: Co
     return allowedIds;
 };
 
-const ScreenManager = () => {
+const ScreenManager = ({ onBuilderToggle }: { onBuilderToggle: (isOpen: boolean) => void }) => {
   const {
     allConversionMethods,
     deleteConversionScreen,
@@ -883,11 +1058,22 @@ const ScreenManager = () => {
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [editingScreen, setEditingScreen] = useState<ConversionScreen | null>(null);
 
+  useEffect(() => {
+      onBuilderToggle(isBuilderOpen);
+  }, [isBuilderOpen, onBuilderToggle]);
+
+  // Preview State
+  const [previewingScreen, setPreviewingScreen] = useState<ConversionScreen | null>(null);
+  const [previewTheme, setPreviewTheme] = useState<'dark' | 'light'>('dark');
+  const [previewOrientation, setPreviewOrientation] = useState<'landscape' | 'portrait'>('landscape');
+  const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
+
   // Search State
   const [screenSearchKey, setScreenSearchKey] = useState(Date.now());
   const [screenSearchTerm, setScreenSearchTerm] = useState('');
   const [screenFilters, setScreenFilters] = useState<Record<string, any>>({
     computedStatusFilter: 'All',
+    gateTypes: [] as string[],
     methodTypesFilter: [] as string[],
   });
   const forceScreenRefresh = () => setScreenSearchKey(Date.now());
@@ -909,13 +1095,37 @@ const ScreenManager = () => {
                     { value: 'error', label: 'Needs Attention' }
                 ] 
             },
-            { 
-                type: 'multiselect', 
-                label: 'Contains Method Type', 
-                stateKey: 'methodTypesFilter', 
-                options: CONVERSION_METHOD_TYPES.map(t => ({ value: t, label: formatType(t) })) 
+            {
+                type: 'multiselect',
+                label: 'Gate Types',
+                stateKey: 'gateTypes',
+                options: [
+                    { value: 'none', label: 'No Gate', isExclusive: true },
+                    { value: 'on_success', label: 'On Method Success' },
+                    { value: 'point_threshold', label: 'Point Threshold' },
+                    { value: 'point_purchase', label: 'Point Purchase' }
+                ]
             }
         ];
+
+        // Hide the count filter if they explicitly chose 'none'
+        const hasNoGate = screenFilters.gateTypes?.includes('none');
+        if (!hasNoGate) {
+            configs.push({
+                type: 'select',
+                label: 'Number of Gates',
+                stateKey: 'numGates',
+                options: ['All', '1', '2', '3', '4+']
+            });
+        }
+
+        // Always show Method Types AFTER Gates
+        configs.push({ 
+            type: 'multiselect', 
+            label: 'Contains Method Type', 
+            stateKey: 'methodTypesFilter', 
+            options: CONVERSION_METHOD_TYPES.map(t => ({ value: t, label: formatType(t) })) 
+        });
 
         // Inject conditional sub-filters based on selected types
         if (screenFilters.methodTypesFilter && screenFilters.methodTypesFilter.length > 0) {
@@ -933,10 +1143,17 @@ const ScreenManager = () => {
         }
 
         return configs;
-  }, [allConversionMethods, screenFilters.methodTypesFilter]);
+  }, [allConversionMethods, screenFilters.methodTypesFilter, screenFilters.gateTypes]);
 
   const handleScreenFilterChange = (key: string, value: string | string[]) => {
-    setScreenFilters((prev) => ({ ...prev, [key]: value }));
+    setScreenFilters((prev) => {
+        const next = { ...prev, [key]: value };
+        // Clean up ghost numGates if 'No Gate' is selected
+        if (key === 'gateTypes' && Array.isArray(value) && value.includes('none')) {
+            next.numGates = 'All';
+        }
+        return next;
+    });
   };
 
   const handleDeleteScreen = async (id: string) => {
@@ -975,137 +1192,186 @@ const ScreenManager = () => {
 
   return (
     <div>
-        {/* --- TOGGLE LOGIC --- */}
-        {!isBuilderOpen ? (
-            <button 
-                onClick={() => { setEditingScreen(null); setIsBuilderOpen(true); }}
-                style={{ ...styles.createButton, marginBottom: '2rem' }}
-            >
-                Create New Conversion Screen
-            </button>
-        ) : (
-            // The Builder takes over this slot, pushing content down
-            <div style={{ marginBottom: '2rem' }}>
+        {isBuilderOpen ? (
+            <div style={{ height: 'calc(100vh - 150px)', minHeight: '650px', width: '100%' }}>
                 <ConversionScreenBuilder 
                     initialScreen={editingScreen}
                     onSave={() => { 
                         setIsBuilderOpen(false); 
                         setEditingScreen(null); 
                         forceScreenRefresh(); 
-                        setTimeout(() => document.getElementById('screens-list-header')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
                     }}
-                    onCancel={() => { setIsBuilderOpen(false); setEditingScreen(null); }}
+                    onCancel={() => { 
+                        setIsBuilderOpen(false); 
+                        setEditingScreen(null); 
+                    }}
                 />
             </div>
-        )}
+        ) : (
+            <>
+                <button 
+                    onClick={() => { setEditingScreen(null); setIsBuilderOpen(true); }}
+                    style={{ ...styles.createButton, marginBottom: '2rem' }}
+                >
+                    Create New Conversion Screen
+                </button>
 
-        {/* --- LIST VIEW (Always visible below) --- */}
-        <div style={{ marginTop: '1rem' }}>
-            {/* REFACTOR: Hybrid Architecture */}
-            <div style={styles.filterContainer}>
-                 <div style={styles.configItem}>
-                    <label>Search</label>
-                    <input
-                        type="text"
-                        placeholder="Search screens..."
-                        value={screenSearchTerm}
-                        onChange={(e) => setScreenSearchTerm(e.target.value)}
-                        style={styles.input}
-                    />
-                </div>
-                <FilterBar
-                filters={screenFilterConfig}
-                filterValues={{
-                    ...screenFilters,
-                    // Safety mapping: ensure dynamic multiselects default to [] instead of undefined
-                    ...screenFilterConfig.reduce((acc, f) => {
-                        if (f.type === 'multiselect' && !screenFilters[f.stateKey]) {
-                            acc[f.stateKey] = [];
-                        }
-                        return acc;
-                    }, {} as Record<string, any>)
-                }}
-                onFilterChange={handleScreenFilterChange}
-                onResetFilters={() => { setScreenFilters({ computedStatusFilter: 'All', methodTypesFilter: [] }); setScreenSearchTerm(''); forceScreenRefresh(); }}
-                />
-            </div>
-            <h3 id="screens-list-header" style={styles.h3}>Existing Conversion Screens</h3>
-            
-            {screenSearchTerm.trim().length > 0 ? (
-                <InstantSearch key={screenSearchKey} searchClient={searchClient} indexName="conversionScreens">
-                    <AlgoliaScreenList
-                        searchTerm={screenSearchTerm}
-                        filters={screenFilters}
-                        handleDelete={handleDeleteScreen}
-                        handleDuplicate={async (item) => { 
-                             // Basic ID normalization if needed, similar to Methods, but mostly handled by hooks
-                             const id = item.id || (item as any).objectID;
-                             const docRef = doc(db, 'conversionScreens', id);
-                             const snap = await getDoc(docRef);
-                             if(snap.exists()) {
+                {/* --- LIST VIEW --- */}
+                <div style={{ marginTop: '1rem' }}>
+                    <div style={styles.filterContainer}>
+                        <div style={styles.configItem}>
+                            <label>Search</label>
+                            <input
+                                type="text"
+                                placeholder="Search screens..."
+                                value={screenSearchTerm}
+                                onChange={(e) => setScreenSearchTerm(e.target.value)}
+                                style={styles.input}
+                            />
+                        </div>
+                        <FilterBar
+                            filters={screenFilterConfig}
+                            filterValues={{
+                                ...screenFilters,
+                                ...screenFilterConfig.reduce((acc, f) => {
+                                    if (f.type === 'multiselect' && !screenFilters[f.stateKey]) {
+                                        acc[f.stateKey] = [];
+                                    }
+                                    return acc;
+                                }, {} as Record<string, any>)
+                            }}
+                            onFilterChange={handleScreenFilterChange}
+                            onResetFilters={() => { setScreenFilters({ computedStatusFilter: 'All', gateTypes: [], methodTypesFilter: [] }); setScreenSearchTerm(''); forceScreenRefresh(); }}
+                        />
+                    </div>
+                    <h3 id="screens-list-header" style={styles.h3}>Existing Conversion Screens</h3>
+                    
+                    {screenSearchTerm.trim().length > 0 ? (
+                        <InstantSearch key={screenSearchKey} searchClient={searchClient} indexName={`${algoliaPrefix}conversionScreens`}>
+                            <AlgoliaScreenList
+                                searchTerm={screenSearchTerm}
+                                filters={screenFilters}
+                                handleDelete={handleDeleteScreen}
+                                handlePreview={async (item) => { 
+                                     const id = item.id || (item as any).objectID;
+                                     const docRef = doc(db, 'conversionScreens', id);
+                                     const snap = await getDoc(docRef);
+                                     if(snap.exists()) {
+                                         setPreviewingScreen({id: snap.id, ...snap.data()} as ConversionScreen);
+                                     }
+                                }}
+                                handleDuplicate={async (item) => { 
+                                     const id = item.id || (item as any).objectID;
+                                     const docRef = doc(db, 'conversionScreens', id);
+                                     const snap = await getDoc(docRef);
+                                     if(snap.exists()) {
+                                        const t = notifications.loading('Duplicating screen...');
+                                        await duplicateConversionScreen({id: snap.id, ...snap.data()} as ConversionScreen);
+                                        notifications.dismiss(t);
+                                        notifications.success('Screen duplicated');
+                                        forceScreenRefresh(); 
+                                     }
+                                }}
+                                handleEdit={(item) => { 
+                                     setEditingScreen({ ...item, id: item.id || (item as any).objectID }); 
+                                     setIsBuilderOpen(true); 
+                                }}
+                                handleDeleteMultiple={handleDeleteMultiple}
+                            />
+                        </InstantSearch>
+                    ) : (
+                        <LocalScreenList
+                            filters={screenFilters}
+                            handleDelete={handleDeleteScreen}
+                            handlePreview={(item) => setPreviewingScreen(item)}
+                            handleDuplicate={async (item) => { 
                                 const t = notifications.loading('Duplicating screen...');
-                                await duplicateConversionScreen({id: snap.id, ...snap.data()} as ConversionScreen);
+                                await duplicateConversionScreen(item); 
                                 notifications.dismiss(t);
                                 notifications.success('Screen duplicated');
                                 forceScreenRefresh(); 
-                             }
-                        }}
-                        handleEdit={(item) => { 
-                             // We don't have a fetch wrapper here for Edit, assume local state is fast enough or pass basic data
-                             // Ideally fetch fresh data like in Methods, but preserving original logic structure where possible.
-                             setEditingScreen({ ...item, id: item.id || (item as any).objectID }); 
-                             setIsBuilderOpen(true); 
-                        }}
-                        handleDeleteMultiple={handleDeleteMultiple}
+                            }}
+                            handleEdit={(item) => { 
+                                setEditingScreen(item); 
+                                setIsBuilderOpen(true); 
+                            }}
+                            handleDeleteMultiple={handleDeleteMultiple}
+                        />
+                    )}
+                </div>
+            </>
+        )}
+
+        {/* --- PREVIEW MODAL --- */}
+            <Modal
+                isOpen={!!previewingScreen}
+                onClose={() => { 
+                    setPreviewingScreen(null); 
+                    setPreviewTheme('dark'); 
+                    setPreviewOrientation('landscape');
+                    setPreviewRefreshKey(0); 
+                }}
+                title={`Preview: ${previewingScreen?.name}`}
+                size="large"
+                footer={
+                    <button 
+                        onClick={() => {
+                            setPreviewingScreen(null);
+                            setPreviewTheme('dark');
+                            setPreviewOrientation('landscape');
+                            setPreviewRefreshKey(0);
+                        }} 
+                        style={styles.secondaryButton}
+                    >
+                        Close
+                    </button>
+                }
+            >
+                <div style={{ height: 'calc(80vh - 165px)', minHeight: '500px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #eee', overflow: 'hidden' }}>
+                    <StaticConversionPreview 
+                        screen={previewingScreen} 
+                        themeMode={previewTheme}
+                        onThemeChange={setPreviewTheme}
+                        orientation={previewOrientation}
+                        onOrientationChange={setPreviewOrientation}
+                        refreshKey={previewRefreshKey}
+                        onRefresh={() => setPreviewRefreshKey(prev => prev + 1)}
                     />
-                </InstantSearch>
-            ) : (
-                <LocalScreenList
-                    filters={screenFilters}
-                    handleDelete={handleDeleteScreen}
-                    handleDuplicate={async (item) => { 
-                        const t = notifications.loading('Duplicating screen...');
-                        await duplicateConversionScreen(item); 
-                        notifications.dismiss(t);
-                        notifications.success('Screen duplicated');
-                        forceScreenRefresh(); 
-                    }}
-                    handleEdit={(item) => { 
-                        setEditingScreen(item); 
-                        setIsBuilderOpen(true); 
-                    }}
-                    handleDeleteMultiple={handleDeleteMultiple}
-                />
-            )}
+                </div>
+            </Modal>
         </div>
-    </div>
   );
 };
 
 export const ConversionsManagerPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'screens' | 'methods'>('screens');
+  const [isBuilding, setIsBuilding] = useState(false);
 
   return (
     <div style={styles.creatorSection}>
-      <div style={styles.managerHeader}>
-        <h2 style={styles.h2}>Conversion Manager</h2>
-      </div>
-      <div style={styles.tabContainer}>
-        <button
-          onClick={() => setActiveTab('screens')}
-          style={activeTab === 'screens' ? { ...styles.tabButton, ...styles.tabButtonActive } : styles.tabButton}
-        >
-          Screens
-        </button>
-        <button
-          onClick={() => setActiveTab('methods')}
-          style={activeTab === 'methods' ? { ...styles.tabButton, ...styles.tabButtonActive } : styles.tabButton}
-        >
-          Methods
-        </button>
-      </div>
+      {!isBuilding && (
+          <>
+              <div style={styles.managerHeader}>
+                <h2 style={styles.h2}>Conversion Manager</h2>
+              </div>
+              <div style={styles.tabContainer}>
+                <button
+                  onClick={() => setActiveTab('screens')}
+                  style={activeTab === 'screens' ? { ...styles.tabButton, ...styles.tabButtonActive } : styles.tabButton}
+                >
+                  Screens
+                </button>
+                <button
+                  onClick={() => setActiveTab('methods')}
+                  style={activeTab === 'methods' ? { ...styles.tabButton, ...styles.tabButtonActive } : styles.tabButton}
+                >
+                  Methods
+                </button>
+              </div>
+          </>
+      )}
 
-      {activeTab === 'screens' ? <ScreenManager /> : <MethodManager />}
+      {activeTab === 'screens' ? <ScreenManager onBuilderToggle={setIsBuilding} /> : <MethodManager onBuilderToggle={setIsBuilding} />}
     </div>
   );
 };

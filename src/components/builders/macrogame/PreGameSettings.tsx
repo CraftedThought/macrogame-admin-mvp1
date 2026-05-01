@@ -5,6 +5,7 @@ import { styles } from '../../../App.styles';
 import { PreGameConfig } from '../../../types';
 import { SimpleTextEditor } from '../../forms/SimpleTextEditor';
 import { TransitionSettingsEditor } from './TransitionSettingsEditor';
+import { SmartNumberInput } from '../../ui/inputs/SmartNumberInput';
 
 interface PreGameSettingsProps {
     config: PreGameConfig;
@@ -32,16 +33,11 @@ export const PreGameSettings: React.FC<PreGameSettingsProps> = ({
     const lastHeadline = useRef<string>(config.headline || '<h1 style="text-align: center; text-transform: uppercase;">{{game_title}}</h1>');
     const lastBodyText = useRef<string>(config.bodyText || '<p style="text-align: center; font-size: 1.25rem;">{{game_controls}}</p>');
 
-    const handleNumberChange = (value: string): number | '' => {
-        if (value === '') return '';
-        const num = Number(value);
-        return (!isNaN(num) && num >= 0) ? num : '';
-    };
-
     const isOverlay = flowType === 'Overlay';
-    // Overlay is a dark mask, so simulate that in the editor background
-    const editorBgColor = isOverlay ? '#333333' : (theme === 'light' ? '#ffffff' : '#1a1a2e');
-    const editorTextColor = isOverlay ? '#ffffff' : (theme === 'light' ? '#333333' : '#ffffff');
+    
+    // Dynamically adapt the editor background to the current theme to prevent white-on-white text issues in the Live Preview
+    const editorBgColor = theme === 'light' ? '#ffffff' : '#1a1a2e';
+    const editorTextColor = theme === 'light' ? '#333333' : '#ffffff';
 
     return (
         <div style={{ backgroundColor: '#fff', padding: '1.5rem 2rem', borderRadius: '8px', border: '1px solid #ddd', marginBottom: '2rem', transition: 'all 0.3s' }}>
@@ -64,8 +60,38 @@ export const PreGameSettings: React.FC<PreGameSettingsProps> = ({
                         onChange={e => { 
                             const isChecked = e.target.checked;
                             onFlowTypeChange(isChecked ? 'Overlay' : 'Skip'); 
-                            if (isChecked) setIsExpanded(true); 
-                        }} 
+                            if (isChecked) {
+                                setIsExpanded(true);
+                                onInteract(); // Navigate immediately in the live preview
+                                
+                                // Automatically restore factory defaults if they were wiped from a previous save
+                                if (!config.headline) {
+                                    onChange('headline', '<h1 style="text-align: center; text-transform: uppercase;">{{game_title}}</h1>');
+                                    setShowHeadline(true);
+                                }
+                                if (!config.bodyText) {
+                                    onChange('bodyText', '<p style="text-align: center; font-size: 1.25rem;">{{game_controls}}</p>');
+                                    setShowBodyText(true);
+                                }
+
+                                // Restore pruned transition object (Default is Auto-Countdown for Pre-Game)
+                                if (!config.transition || !config.transition.buttonConfig) {
+                                    onChange('transition', {
+                                        type: 'auto',
+                                        autoDuration: 3,
+                                        showCountdown: true,
+                                        countdownText: 'Continuing in {{time}}',
+                                        interactionMethod: 'click',
+                                        clickFormat: 'button',
+                                        disclaimerText: 'Click anywhere to start',
+                                        pulseAnimation: true,
+                                        buttonConfig: { text: 'Start', borderRadius: 6, paddingVertical: 12, paddingHorizontal: 32, widthMode: 'max', customWidth: 50, strokeStyle: 'none', strokeWidth: 2, enableHoverAnimation: true },
+                                        buttonStyle: { backgroundColor: '#0866ff', textColor: '#ffffff', strokeColor: '#0866ff' },
+                                        lightButtonStyle: { backgroundColor: '#0866ff', textColor: '#ffffff', strokeColor: '#0866ff' }
+                                    });
+                                }
+                            }
+                        }}
                         style={{ width: '18px', height: '18px' }} 
                     />
                     Enable Screen
@@ -187,21 +213,21 @@ export const PreGameSettings: React.FC<PreGameSettingsProps> = ({
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem 1rem', marginBottom: '1.5rem' }}>
                                     <div style={styles.configItem}>
                                         <label>Between Text (px)</label>
-                                        <input 
-                                            type="number" min="0" max="120"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.textSpacing ?? 0}
-                                            onChange={e => onChange('textSpacing', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('textSpacing', 0); }}
+                                            onChange={val => onChange('textSpacing', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
                                     <div style={styles.configItem}>
                                         <label>Between Groups (px)</label>
-                                        <input 
-                                            type="number" min="0" max="120"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.blockSpacing ?? 0}
-                                            onChange={e => onChange('blockSpacing', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('blockSpacing', 0); }}
+                                            onChange={val => onChange('blockSpacing', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
@@ -209,41 +235,41 @@ export const PreGameSettings: React.FC<PreGameSettingsProps> = ({
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem 1rem', borderTop: '1px dashed #ccc', paddingTop: '1.5rem' }}>
                                     <div style={styles.configItem}>
                                         <label>Padding Top (px)</label>
-                                        <input 
-                                            type="number" min="0" max="200"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.paddingTop ?? 0}
-                                            onChange={e => onChange('paddingTop', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('paddingTop', 0); }}
+                                            onChange={val => onChange('paddingTop', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
                                     <div style={styles.configItem}>
                                         <label>Padding Bottom (px)</label>
-                                        <input 
-                                            type="number" min="0" max="200"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.paddingBottom ?? 0}
-                                            onChange={e => onChange('paddingBottom', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('paddingBottom', 0); }}
+                                            onChange={val => onChange('paddingBottom', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
                                     <div style={styles.configItem}>
                                         <label>Padding Left (px)</label>
-                                        <input 
-                                            type="number" min="0" max="200"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.paddingLeft ?? 0}
-                                            onChange={e => onChange('paddingLeft', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('paddingLeft', 0); }}
+                                            onChange={val => onChange('paddingLeft', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
                                     <div style={styles.configItem}>
                                         <label>Padding Right (px)</label>
-                                        <input 
-                                            type="number" min="0" max="200"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.paddingRight ?? 0}
-                                            onChange={e => onChange('paddingRight', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('paddingRight', 0); }}
+                                            onChange={val => onChange('paddingRight', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>

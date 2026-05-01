@@ -13,15 +13,25 @@ interface BarebonesProps {
     isMuted: boolean;
     onClose: () => void;
     onMute: () => void;
+    onRestart?: () => void;
     // These props are unused in Barebones but are included for interface consistency
     title?: string;
     subtitle?: string;
     colorScheme?: string;
 }
 
-const BarebonesSkin: React.FC<BarebonesProps> = ({ children, isMuted, onClose, onMute }) => {
+const BarebonesSkin: React.FC<BarebonesProps> = ({ children, isMuted, onClose, onMute, onRestart }) => {
     return (
         <div className={styles.container}>
+            {onRestart && (
+                <button className={styles.restartButton} onClick={onRestart} aria-label="Restart Preview">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="1 4 1 10 7 10"></polyline>
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                    </svg>
+                    Restart
+                </button>
+            )}
             <div className={styles.gameArea}>
                 {children}
             </div>

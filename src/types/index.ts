@@ -162,6 +162,13 @@ export interface MaskThemeStyle {
     backgroundColor: string;
     textColor: string;
     strokeColor: string;
+    
+    // --- Optional Component Colors ---
+    buttonColor?: string;
+    buttonTextColor?: string;
+    progressBarColor?: string;
+    progressBackgroundColor?: string;
+    pointLabelColor?: string; // For Point Threshold text
 }
 
 export interface MaskConfig {
@@ -169,6 +176,16 @@ export interface MaskConfig {
     headline: string; // e.g., "LOCKED", "CLICK TO REVEAL"
     body: string;     // e.g., "Complete task to unlock"
     showIcon: boolean;
+
+    // --- Contextual Overrides ---
+    codeHeadline?: string; // Used specifically for code_only coupon masks
+
+    // --- Unaffordable State (Specific to Point Gates) ---
+    unaffordableHeadline?: string;
+    unaffordableBody?: string;
+    unaffordableShowIcon?: boolean;
+    purchaseButtonText?: string; // e.g., "Buy for {{cost}} Points"
+    showPointLabel?: boolean; // Formalizing existing dynamic prop
 
     // Layout & Global Visuals
     animation: 'fade' | 'none';
@@ -316,6 +333,8 @@ export interface MacrogameConfig {
   conversionScreenConfig?: {
     syncWidth: boolean;
     customWidth?: number;
+    targetRewardInstanceId?: string; 
+    targetRewardNameOverride?: string; // --- NEW: Upstream Custom Name ---
   };
 }
 
@@ -729,6 +748,24 @@ export interface ConversionScreen {
 
         // Stores the custom styling for this specific gate's mask
         maskConfig?: MaskConfig;
+
+        // --- Resolution Routing for Point Gates ---
+        resolutionConfig?: {
+            // Logic: Play Again
+            isPlayAgainEnabled: boolean;
+            playAgainBehavior: 'reset_points' | 'keep_points';
+            playAgainTargetIndex: number; // 0 for the first game, or a specific index
+            
+            // Logic: Branching Routing
+            isContinueEnabled: boolean;
+            routeTargetId?: string; // ID of the fallback Conversion Screen
+
+            // Visuals: Mapped to existing builders
+            transition: TransitionConfig; // Controls the Primary Button
+            secondaryButtonConfig?: ButtonStructureConfig; // Controls the Secondary Button
+            secondaryButtonStyle?: ButtonThemeStyle;
+            lightSecondaryButtonStyle?: ButtonThemeStyle;
+        }
     }
   }[];
 }

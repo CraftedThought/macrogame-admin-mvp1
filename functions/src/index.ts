@@ -131,26 +131,59 @@ const transformConversionScreenDoc = async (
   const methodIds = (screen.methods || []).map((m: any) => m.methodId);
   const methodIdList = [...new Set(methodIds as string[])];
 
+  // --- Derived Metadata for Advanced Filtering ---
+  const numMethods = (screen.methods || []).length;
+  const gateTypesPresent = new Set<string>();
+  let numGates = 0;
+  const orderedMethodTypes: string[] = [];
+
   if (methodIds.length === 0) {
     newStatus = { code: "error", message: "Screen has no conversion methods." };
   } else {
-    // Check if all methods exist
+    // Check if all methods exist and fetch their types for sequence filtering
     const methodsSnap = await db
       .collection("conversionMethods")
       .where(FieldPath.documentId(), "in", methodIds)
       .get();
+      
+    const methodsMap = new Map(methodsSnap.docs.map((d) => [d.id, d.data()]));
+    
     if (methodsSnap.size !== methodIds.length) {
       newStatus = {
         code: "error",
         message: "Screen links to a deleted conversion method.",
       };
     }
+
+    // Extract gates and sequence
+    (screen.methods || []).forEach((m: any) => {
+        if (m.gate && m.gate.type !== 'none') {
+            gateTypesPresent.add(m.gate.type);
+            numGates++;
+        }
+        const methodData = methodsMap.get(m.methodId);
+        if (methodData) {
+            orderedMethodTypes.push(methodData.type);
+        }
+    });
   }
+
+  // Generate dynamic sequence filters (method1Type, method2Type, etc.)
+  const sequenceFilters: any = {};
+  orderedMethodTypes.forEach((type, index) => {
+      sequenceFilters[`method${index + 1}Type`] = type;
+  });
 
   return {
     ...screen,
     status: newStatus,
-    methodIdList: methodIdList, // Ensure this is always present
+    methodIdList: methodIdList, 
+    
+    // Inject new advanced filter fields
+    numMethods,
+    numGates,
+    gateTypes: Array.from(gateTypesPresent),
+    ...sequenceFilters
   };
 };
 
@@ -171,8 +204,38 @@ const transformConversionMethodDoc = async (
       html,          // Static HTML content
       footerText,    // Footer content
       lightStyle,    // Light mode overrides
+      links,         // Strip links array to save space
+      maskConfig,    // Strip mask config to save space
       ...lightweightMethod 
   } = method;
+
+  // --- Derived Metadata for Advanced Filtering ---
+  
+  // 1. Coupon Reveal Type
+  let couponRevealType = 'none';
+  if (method.type === 'coupon_display' && method.clickToReveal) {
+      couponRevealType = method.revealScope === 'code_only' ? 'code_only' : 'entire_card';
+  }
+
+  // 2. Link Transition Type
+  let linkTransitionType = 'none';
+  if (method.type === 'link_redirect' && method.transition) {
+      if (method.transition.type === 'auto') linkTransitionType = 'auto';
+      else if (method.transition.interactionMethod === 'click' && method.transition.clickFormat === 'button') linkTransitionType = 'button';
+      else linkTransitionType = 'disclaimer';
+  }
+
+  // 3. Number of Fields (Form Submit)
+  let numFields = 0;
+  if (method.type === 'form_submit' && fields) {
+      numFields = fields.length;
+  }
+
+  // 4. Social Platforms (Social Follow)
+  let socialPlatforms: string[] = [];
+  if (method.type === 'social_follow' && links) {
+      socialPlatforms = links.filter((l: any) => l.isEnabled).map((l: any) => l.platform);
+  }
 
   return {
     ...lightweightMethod,
@@ -181,6 +244,13 @@ const transformConversionMethodDoc = async (
     hasStyle: !!style,
     hasHeadline: !!headline,
     hasHtml: !!html,
+    
+    // Inject new advanced filter fields
+    couponRevealType,
+    linkTransitionType,
+    numFields,
+    socialPlatforms,
+    
     // Add default status
     status: { code: "ok", message: "" }, 
   };

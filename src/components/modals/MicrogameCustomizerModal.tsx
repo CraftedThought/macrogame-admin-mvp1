@@ -55,8 +55,6 @@ export const MicrogameCustomizerModal: React.FC<MicrogameCustomizerModalProps> =
     const handleSave = async () => {
         if (!microgame || !variantName.trim()) { notifications.error('Please provide a name for your custom variant.'); return; }
         
-        // 1. Start loading toast (Keep this for the upload duration, which is real work)
-        const loadingToast = notifications.loading('Saving variant...');
         setIsLoading(true);
 
         const filesToUpload = Object.entries(skinFiles).reduce((acc, [key, file]) => {
@@ -65,17 +63,16 @@ export const MicrogameCustomizerModal: React.FC<MicrogameCustomizerModalProps> =
         }, {} as { [key: string]: File });
 
         try {
-            // 2. Perform the save/upload
+            // 1. Perform the save/upload
             await onSave(microgame, variantName, filesToUpload, existingVariant || undefined);
             
-            // 3. Dismiss immediately (No delay)
-            notifications.dismiss(loadingToast);
+            // 2. Show instant success feedback
+            notifications.success('Variant saved successfully');
             
-            // 4. Close Modal
+            // 3. Close Modal
             onClose();
             
         } catch (error) {
-            notifications.dismiss(loadingToast);
             console.error("Failed to save custom microgame:", error);
             notifications.error("An error occurred while saving.");
         } finally {

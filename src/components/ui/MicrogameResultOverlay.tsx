@@ -53,6 +53,8 @@ export interface MicrogameResultOverlayProps {
     scoreLedger?: ScoreLedgerItem[];
     currentGameIndex?: number;
     playScoreTallyAudio?: () => void;
+    targetScore?: number;          // --- Upstream Visibility ---
+    targetRewardName?: string;     // --- Upstream Visibility ---
 }
 
 export const MicrogameResultOverlay: React.FC<MicrogameResultOverlayProps> = ({
@@ -71,7 +73,9 @@ export const MicrogameResultOverlay: React.FC<MicrogameResultOverlayProps> = ({
     isActive = true,
     scoreLedger = [],
     currentGameIndex = 0,
-    playScoreTallyAudio
+    playScoreTallyAudio,
+    targetScore,
+    targetRewardName
 }) => {
     
     const hasPlayedTally = useRef(false);
@@ -185,7 +189,7 @@ export const MicrogameResultOverlay: React.FC<MicrogameResultOverlayProps> = ({
                 style={{
                     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                     backgroundColor: 'transparent', // Move all background logic to Layer 2 so they don't compound
-                    color: (isStandAlone && theme === 'light') ? '#333333' : 'white', zIndex: 100,
+                    color: theme === 'light' ? '#333333' : '#ffffff', zIndex: 100,
                     display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
                     fontFamily: 'inherit',
                     cursor: canClickAnywhere ? 'pointer' : 'default'
@@ -250,14 +254,15 @@ export const MicrogameResultOverlay: React.FC<MicrogameResultOverlayProps> = ({
                             flex: '0 1 auto', // Allow shrinking, but base size is natural
                             overflowY: 'auto',
                             overflowX: 'hidden',
-                            minHeight: 0 // Protects flexbox container
+                            minHeight: 0, // Protects flexbox container
+                            padding: '2px 0'
                         }}>
                             {headline && (
                                 <div className="ql-editor" style={{ width: '100%', flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: headline }} />
                             )}
 
                             {showScore && (() => {
-                                if (macroConfig.pointDisplayMode === 'none') {
+                                if (!macroConfig.showPoints || macroConfig.pointDisplayMode === 'none') {
                                     return null;
                                 }
 
@@ -265,7 +270,8 @@ export const MicrogameResultOverlay: React.FC<MicrogameResultOverlayProps> = ({
                                 if (macroConfig.pointDisplayMode === 'simple' || !macroConfig.pointDisplayMode) {
                                     return (
                                         <div style={{ fontSize: '1.5rem', fontWeight: 'bold', flexShrink: 0 }}>
-                                            Final Score: <AnimatedNumber value={score} enabled={macroConfig.enableTallyAnimation} />
+                                            Total Points: <AnimatedNumber value={score} enabled={macroConfig.enableTallyAnimation} />
+                                            {targetScore && targetScore > 0 ? ` / ${targetScore}` : ''}
                                         </div>
                                     );
                                 }
@@ -295,16 +301,17 @@ export const MicrogameResultOverlay: React.FC<MicrogameResultOverlayProps> = ({
 
                                 const currentGameTotal = groupedCurrentItems.reduce((sum, item) => sum + item.points, 0);
 
-                                const isLight = theme === 'light' && isStandAlone;
+                                const isLight = theme === 'light';
                                 const receiptBg = isLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(255, 255, 255, 0.05)';
                                 const receiptBorder = isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.15)';
-                                const textColor = isLight ? '#333' : '#fff';
-                                const mutedColor = isLight ? '#666' : '#bbb';
+                                const textColor = isLight ? '#333333' : '#ffffff';
+                                const mutedColor = isLight ? '#666666' : '#bbbbbb';
 
                                 return (
+                                    <>
                                     <div style={{ 
                                         width: '100%', maxWidth: '400px', backgroundColor: receiptBg, 
-                                        border: `1px solid ${receiptBorder}`, borderRadius: '8px', 
+                                        border: `1px solid ${receiptBorder}`, borderRadius: '8px',
                                         padding: '1.25rem', fontFamily: 'monospace', fontSize: '1rem',
                                         textAlign: 'left', color: textColor,
                                         boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.05)',
@@ -363,6 +370,32 @@ export const MicrogameResultOverlay: React.FC<MicrogameResultOverlayProps> = ({
                                             <span><AnimatedNumber value={score} enabled={macroConfig.enableTallyAnimation} /> pts</span>
                                         </div>
                                     </div>
+                                    
+                                    {/* --- UPSTREAM VISIBILITY: PACING INDICATOR --- */}
+                                    {targetScore && targetScore > 0 && targetRewardName && (
+                                        <div style={{
+                                            marginTop: '0.75rem',
+                                            padding: '0.75rem 1.25rem',
+                                            backgroundColor: score >= targetScore ? 'rgba(46, 204, 113, 0.15)' : 'rgba(241, 196, 15, 0.15)',
+                                            border: `1px solid ${score >= targetScore ? '#2ecc71' : '#f1c40f'}`,
+                                            borderRadius: '8px',
+                                            color: theme === 'light' ? '#333333' : '#ffffff',
+                                            fontSize: '0.95rem',
+                                            fontWeight: '500',
+                                            textAlign: 'center',
+                                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                            maxWidth: '400px',
+                                            width: '100%',
+                                            boxSizing: 'border-box'
+                                        }}>
+                                            {score >= targetScore ? (
+                                                <span>🎉 You have enough points to unlock the <strong>{targetRewardName}</strong>!</span>
+                                            ) : (
+                                                <span>🎯 You need <strong>{targetScore - score} more points</strong> to unlock the <strong>{targetRewardName}</strong>!</span>
+                                            )}
+                                        </div>
+                                    )}
+                                    </>
                                 );
                             })()}
 

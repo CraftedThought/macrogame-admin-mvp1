@@ -100,7 +100,13 @@ export const FlowRuleOverrides: React.FC<FlowRuleOverridesProps> = ({
                                             <div style={{ display: 'flex', gap: '1rem' }}>
                                                 <div style={{ flex: 1 }}>
                                                     <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '0.25rem' }}>Target Amount</label>
-                                                    <SmartNumberInput min={1} value={winCond.quotaAmount ?? 5} onChange={(val) => onConditionUpdate(index, 'winCondition', { ...winCond, quotaAmount: val })} style={{...styles.input, width: '100%'}} />
+                                                    <SmartNumberInput 
+                                                        min={1} max={100}
+                                                        fallbackValue={5}
+                                                        value={winCond.quotaAmount ?? 5} 
+                                                        onChange={(val) => onConditionUpdate(index, 'winCondition', { ...winCond, quotaAmount: Math.max(1, val) })} 
+                                                        style={{...styles.input, width: '100%'}} 
+                                                    />
                                                 </div>
                                             </div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem' }}>
@@ -120,7 +126,13 @@ export const FlowRuleOverrides: React.FC<FlowRuleOverridesProps> = ({
                                         <div style={{ padding: '1rem', backgroundColor: '#fff8e1', borderRadius: '6px', border: '1px solid #ffe0b2' }}>
                                             <div style={{ marginBottom: '1rem' }}>
                                                 <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '0.25rem' }}>Target Score</label>
-                                                <SmartNumberInput value={winCond.quotaAmount ?? 100} onChange={(val) => onConditionUpdate(index, 'winCondition', { ...winCond, quotaAmount: val })} style={{...styles.input, width: '100%'}} />
+                                                <SmartNumberInput 
+                                                    min={1} max={9999}
+                                                    fallbackValue={100}
+                                                    value={winCond.quotaAmount ?? 100} 
+                                                    onChange={(val) => onConditionUpdate(index, 'winCondition', { ...winCond, quotaAmount: Math.max(1, val) })} 
+                                                    style={{...styles.input, width: '100%'}} 
+                                                />
                                             </div>
                                             <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', cursor: 'pointer' }}>
                                                 <input type="checkbox" checked={winCond.endImmediately ?? true} onChange={(e) => onConditionUpdate(index, 'winCondition', { ...winCond, endImmediately: e.target.checked })} style={{ marginRight: '0.5rem' }} />
@@ -162,7 +174,13 @@ export const FlowRuleOverrides: React.FC<FlowRuleOverridesProps> = ({
                                             <div style={{ display: 'flex', gap: '1rem' }}>
                                                 <div style={{ flex: 1 }}>
                                                     <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '0.25rem' }}>Lose on Count (e.g. 3rd hit)</label>
-                                                    <SmartNumberInput min={1} value={lossCond.quotaAmount ?? 3} onChange={(val) => onConditionUpdate(index, 'lossCondition', { ...lossCond, quotaAmount: val })} style={{...styles.input, width: '100%'}} />
+                                                    <SmartNumberInput 
+                                                        min={1} max={100}
+                                                        fallbackValue={3}
+                                                        value={lossCond.quotaAmount ?? 3} 
+                                                        onChange={(val) => onConditionUpdate(index, 'lossCondition', { ...lossCond, quotaAmount: Math.max(1, val) })} 
+                                                        style={{...styles.input, width: '100%'}} 
+                                                    />
                                                 </div>
                                             </div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem' }}>

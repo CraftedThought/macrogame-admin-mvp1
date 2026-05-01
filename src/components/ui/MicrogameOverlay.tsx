@@ -17,9 +17,11 @@ interface MicrogameOverlayProps {
     isActive?: boolean;
     hasProgressTracker?: boolean;
     hasProgressLabels?: boolean;
+    targetScore?: number;
+    targetRewardName?: string;
 }
 
-export const MicrogameOverlay: React.FC<MicrogameOverlayProps> = ({ name, controls, onStart, preGameConfig, theme = 'dark', contentWidth = 100, contentHeight = 100, showLayoutGuides = false, isActive = true, hasProgressTracker = false, hasProgressLabels = false }) => {
+export const MicrogameOverlay: React.FC<MicrogameOverlayProps> = ({ name, controls, onStart, preGameConfig, theme = 'dark', contentWidth = 100, contentHeight = 100, showLayoutGuides = false, isActive = true, hasProgressTracker = false, hasProgressLabels = false, targetScore, targetRewardName }) => {
     const config = preGameConfig || {};
     const transition = config.transition || {};
     const isAuto = (transition.type || 'interact') === 'auto';
@@ -45,8 +47,8 @@ export const MicrogameOverlay: React.FC<MicrogameOverlayProps> = ({ name, contro
     const structGuideStyle: React.CSSProperties = showLayoutGuides ? { outline: '2px dashed rgba(255, 0, 0, 0.5)', outlineOffset: '-2px', backgroundColor: 'rgba(255, 0, 0, 0.05)', boxSizing: 'border-box' } : {};
     const contentGuideStyle: React.CSSProperties = showLayoutGuides ? { outline: '2px dotted rgba(255, 193, 7, 0.9)', outlineOffset: '-2px', backgroundColor: 'rgba(255, 193, 7, 0.15)', boxSizing: 'border-box' } : {};
 
-    const parsedHeadline = parseGameMergeTags(config.headline || '<h1 style="text-align: center; text-transform: uppercase;">{{game_title}}</h1>', name, controls);
-    const parsedBodyText = parseGameMergeTags(config.bodyText || '<p style="text-align: center; font-size: 1.25rem;">{{game_controls}}</p>', name, controls);
+    const parsedHeadline = parseGameMergeTags(config.headline || '<h1 style="text-align: center; text-transform: uppercase;">{{game_title}}</h1>', name, controls, targetScore, targetRewardName);
+    const parsedBodyText = parseGameMergeTags(config.bodyText || '<p style="text-align: center; font-size: 1.25rem;">{{game_controls}}</p>', name, controls, targetScore, targetRewardName);
 
     return (
         <>
@@ -150,7 +152,7 @@ export const MicrogameOverlay: React.FC<MicrogameOverlayProps> = ({ name, contro
                             <div className="custom-scrollbar" style={{
                                 display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%',
                                 gap: `${config.textSpacing === '' ? 0 : (config.textSpacing ?? 16)}px`,
-                                flex: '0 1 auto', overflowY: 'auto', overflowX: 'hidden', minHeight: 0
+                                flex: '0 1 auto', overflowY: 'auto', overflowX: 'hidden', minHeight: 0, padding: '2px 0'
                             }}>
                                 {config.headline && (
                                     <div className="ql-editor" style={{ width: '100%', flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: parsedHeadline }} />

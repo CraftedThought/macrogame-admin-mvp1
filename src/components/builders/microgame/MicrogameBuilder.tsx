@@ -56,9 +56,23 @@ export const MicrogameBuilder: React.FC<MicrogameBuilderProps> = ({ baseGame, in
     // 3. Bridge Form Submit to Hook Save
     const onSubmit: SubmitHandler<BuilderFormValues> = (data) => {
         const errors: string[] = [];
-        if (!data.sectors || data.sectors.length === 0) errors.push("Please select at least one Business Sector (or 'All').");
-        if (!data.categories || data.categories.length === 0) errors.push("Please select at least one Product Category (or 'All').");
-        if (!data.subcategories || data.subcategories.length === 0) errors.push("Please select at least one Subcategory (or 'All').");
+        
+        // 1. Sector Validation
+        if (!data.sectors || data.sectors.length === 0) {
+            errors.push("Please select at least one Business Sector (or 'All').");
+        } else if (!data.sectors.includes('All')) {
+            // 2. Cascading Category Validation (Only if Sector is NOT 'All')
+            if (!data.categories || data.categories.length === 0) {
+                errors.push("Please select at least one Product Category (or 'All').");
+            } else if (!data.categories.includes('All')) {
+                // 3. Cascading Subcategory Validation (Only if Category is NOT 'All')
+                if (!data.subcategories || data.subcategories.length === 0) {
+                    errors.push("Please select at least one Subcategory (or 'All').");
+                }
+            }
+        }
+
+        // 4. Standard Tag Validation
         if (!data.seasonality || data.seasonality.length === 0) errors.push("Please select at least one Seasonality option (or 'All').");
         if (!data.targetAudience || data.targetAudience.length === 0) errors.push("Please select at least one Target Audience option (or 'All').");
         if (!data.promotionCompatibility || data.promotionCompatibility.length === 0) errors.push("Please select at least one Promo Compatibility option (or 'All').");

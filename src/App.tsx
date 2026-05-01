@@ -27,6 +27,7 @@ import { Modal } from './components/ui/Modal';
 import { DeliveryContainerEditorModal } from "./components/modals/DeliveryContainerEditorModal";
 import { MicrogameCustomizerModal } from './components/modals/MicrogameCustomizerModal';
 import { MacrogameWizardModal } from './components/wizards/MacrogameWizardModal';
+import { MacrogameEditModal } from './components/modals/MacrogameEditModal';
 
 export default function App() {
     const navigate = useNavigate();
@@ -114,33 +115,6 @@ export default function App() {
         } 
     };
 
-    const handleUpdateAndCloseMacrogame = async (macrogame: Omit<Macrogame, 'id' | 'type'> & { id: string | null }) => {
-        const newName = macrogame.name?.trim();
-        if (!newName) {
-            notifications.error("Macrogame name cannot be empty.");
-            return;
-        }
-
-        const isNameTaken = macrogames.some(m => m.name === newName && m.id !== macrogame.id);
-        if (isNameTaken) {
-            notifications.error(`A macrogame named "${newName}" already exists. Please choose a unique name.`);
-            return;
-        }
-
-        try {
-            await updateMacrogame(macrogame);
-
-            notifications.success('Macrogame saved');
-            setEditingMacrogame(null);
-
-            // Send a signal to the MacrogamesManager to refresh its list
-            navigate('/manager', { state: { refreshTimestamp: Date.now() } });
-
-        } catch (error) {
-            notifications.error('Failed to save macrogame.');
-        }
-    };
-
     const handleSaveContainer = async (containerId: string, dataToUpdate: Partial<DeliveryContainer>) => {
         try {
             // --- THIS IS THE FIX ---
@@ -205,26 +179,14 @@ export default function App() {
                         }}
                     />
 
-                    <Modal
+                    <MacrogameEditModal
                         isOpen={!!editingMacrogame}
                         onClose={() => setEditingMacrogame(null)}
-                        title="Edit Macrogame"
-                        size="large"
-                        footer={(
-                            <>
-                                <button type="button" onClick={() => setEditingMacrogame(null)} style={styles.secondaryButton}>Cancel</button>
-                                <button type="button" onClick={() => document.getElementById('macrogame-form-save-button')?.click()} style={styles.saveButton}>Save Changes</button>
-                            </>
-                        )}
-                    >
-                        <MacrogameForm
-                            existingMacrogame={editingMacrogame}
-                            onSave={handleUpdateAndCloseMacrogame}
-                            onLaunchWizard={(data) => setWizardData(data)}
-                            flowFromWizard={flowFromWizard}
-                            onClearWizardFlow={() => setFlowFromWizard(null)}
-                        />
-                    </Modal>
+                        macrogame={editingMacrogame}
+                        onLaunchWizard={(data) => setWizardData(data)}
+                        flowFromWizard={flowFromWizard}
+                        onClearWizardFlow={() => setFlowFromWizard(null)}
+                    />
 
                     {/* --- Rename component and props --- */}
                     <DeliveryContainerEditorModal

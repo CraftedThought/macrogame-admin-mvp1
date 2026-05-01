@@ -1,6 +1,6 @@
 /* src/components/previews/StaticConversionPreview.tsx */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ConversionScreen, ConversionMethod } from '../../types';
 import { ConversionScreenHost } from '../conversions/ConversionScreenHost';
 import { CouponDisplay, EmailCapture, FormSubmit, LinkRedirect, SocialFollow } from '../conversions';
@@ -47,6 +47,11 @@ interface StaticConversionPreviewProps {
     onPreviewWidthChange?: (width: number) => void;
     previewTotalScore?: number;
     previewPointCosts?: { [key: string]: number };
+    previewIsPlaying?: boolean;
+    // --- Lifted State ---
+    previewGateState?: 'locked' | 'unlocked';
+    onPreviewGateStateChange?: (state: 'locked' | 'unlocked') => void;
+    revealResetTrigger?: { instanceId?: string; timestamp: number };
 }
 
 export const StaticConversionPreview: React.FC<StaticConversionPreviewProps> = ({ 
@@ -61,7 +66,11 @@ export const StaticConversionPreview: React.FC<StaticConversionPreviewProps> = (
     previewWidth,
     onPreviewWidthChange,
     previewTotalScore,
-    previewPointCosts
+    previewPointCosts,
+    previewIsPlaying = false,
+    previewGateState = 'locked',
+    onPreviewGateStateChange,
+    revealResetTrigger
 }) => {
     const wrapperRef = useRef<HTMLDivElement>(null);
     const [showChrome, setShowChrome] = useState(false); 
@@ -69,6 +78,46 @@ export const StaticConversionPreview: React.FC<StaticConversionPreviewProps> = (
     
     // --- Local State for Interactive Preview ---
     const [isPreviewRevealed, setIsPreviewRevealed] = useState(false);
+    
+    // Fallback state for when a parent (like the Saved Screens Library) doesn't control the gates
+    const [localGateState, setLocalGateState] = useState<'locked' | 'unlocked'>('locked');
+    const [localScore, setLocalScore] = useState(0); // Fallback slider state
+    const activeGateState = onPreviewGateStateChange ? previewGateState : localGateState;
+
+    const handleGateStateChange = (state: 'locked' | 'unlocked') => {
+        if (onPreviewGateStateChange) {
+            onPreviewGateStateChange(state); // Use Parent (Builder)
+        } else {
+            setLocalGateState(state); // Use Local (Library Preview)
+        }
+    };
+
+    // --- Smart Fallbacks for Standalone Modals ---
+    const activeScore = previewTotalScore !== undefined ? previewTotalScore : localScore;
+    
+    const activePointCosts = useMemo(() => {
+        if (previewPointCosts && Object.keys(previewPointCosts).length > 0) return previewPointCosts;
+        
+        // If no costs are passed (Standalone Modal), inject a default of 1000 for visual testing
+        const mockCosts: { [key: string]: number } = {};
+        screen?.methods?.forEach(m => {
+            if (m.gate?.type === 'point_threshold' || m.gate?.type === 'point_purchase') {
+                mockCosts[m.instanceId] = 1000;
+            }
+        });
+        return mockCosts;
+    }, [previewPointCosts, screen]);
+
+    const hasPointGates = useMemo(() => {
+        return screen?.methods?.some(m => m.gate?.type === 'point_threshold' || m.gate?.type === 'point_purchase');
+    }, [screen]);
+
+    // Reset local standalone reveal state
+    useEffect(() => {
+        if (revealResetTrigger?.timestamp) {
+            setIsPreviewRevealed(false);
+        }
+    }, [revealResetTrigger]);
 
     useEffect(() => {
         // Reset reveal state when method changes or refresh button is clicked
@@ -146,13 +195,22 @@ export const StaticConversionPreview: React.FC<StaticConversionPreviewProps> = (
             // Inject fake score and stub function for preview interactivity
             content = (
                 <ConversionScreenHost 
+                    key={refreshKey} // Applies reset seamlessly without breaking the outer chrome
                     screen={screen} 
-                    totalScore={previewTotalScore ?? 99999} // Use prop if available
-                    pointCosts={previewPointCosts ?? {}}    // Use prop if available
-                    redeemPoints={() => console.log("Points redeemed in preview")}
+                    totalScore={activeScore}
+                    pointCosts={activePointCosts}
+                    redeemPoints={(amount) => {
+                        console.log(`Points redeemed in preview: ${amount}`);
+                        // Optional: Deduct from local slider if they click purchase in the modal
+                        if (previewTotalScore === undefined) setLocalScore(prev => Math.max(0, prev - amount));
+                    }}
                     themeMode={themeMode}
                     contentHeight={95} // Simulate the Macrogame's default 95% safe area
                     overrideWidth={activeWidth}
+                    isActive={previewIsPlaying}
+                    // --- Pass our new global force unlock prop ---
+                    previewGateStateOverride={activeGateState}
+                    revealResetTrigger={revealResetTrigger}
                 />
             );
         } else if (method) {
@@ -243,10 +301,10 @@ export const StaticConversionPreview: React.FC<StaticConversionPreviewProps> = (
                                         themeMode={themeMode} // <--- Pass theme
                                     />
                                 )}
-                                {method.type === 'email_capture' && <EmailCapture method={activeMethod} onSuccess={() => {}} isPortrait={isPortrait} />}
-                                {method.type === 'form_submit' && <FormSubmit method={activeMethod} onSuccess={() => {}} isPortrait={isPortrait} />}
-                                {method.type === 'link_redirect' && <LinkRedirect method={activeMethod} onSuccess={() => {}} isPortrait={isPortrait} />}
-                                {method.type === 'social_follow' && <SocialFollow method={activeMethod} onSuccess={() => {}} isPortrait={isPortrait} />}
+                                {method.type === 'email_capture' && <EmailCapture key={`${themeMode}-${orientation}-${showChrome ? 'chrome' : 'no-chrome'}-${refreshKey}`} method={activeMethod} onSuccess={() => {}} isPortrait={isPortrait} />}
+                                {method.type === 'form_submit' && <FormSubmit key={`${themeMode}-${orientation}-${showChrome ? 'chrome' : 'no-chrome'}-${refreshKey}`} method={activeMethod} onSuccess={() => {}} isPortrait={isPortrait} />}
+                                {method.type === 'link_redirect' && <LinkRedirect key={`${themeMode}-${orientation}-${showChrome ? 'chrome' : 'no-chrome'}-${refreshKey}`} method={activeMethod} onSuccess={() => {}} isPortrait={isPortrait} isActive={previewIsPlaying} />}
+                                {method.type === 'social_follow' && <SocialFollow key={`${themeMode}-${orientation}-${showChrome ? 'chrome' : 'no-chrome'}-${refreshKey}`} method={activeMethod} onSuccess={() => {}} isPortrait={isPortrait} />}
                             </MethodContainer>
                         </div>
                     </div>
@@ -310,41 +368,48 @@ export const StaticConversionPreview: React.FC<StaticConversionPreviewProps> = (
                 borderBottom: '1px solid #eee',
                 display: 'flex', 
                 justifyContent: 'space-between', 
-                alignItems: 'center'
+                alignItems: 'center',
+                backgroundColor: '#ffffff' // Clean backing for the new button
             }}>
-                <h5 style={{ margin: 0, color: '#333', fontSize: '1rem' }}>Game Screen Preview</h5>
+                <h5 style={{ margin: 0, color: '#333', fontSize: '1rem' }}>Conversion Screen Preview</h5>
                 
                 {onRefresh && (
                     <button 
                         onClick={onRefresh}
-                        title="Refresh Preview"
+                        title="Reset Preview to test animations and gating logic"
                         style={{
-                            background: 'none',
-                            border: 'none',
+                            background: '#fff',
+                            border: '1px solid #ddd',
                             cursor: 'pointer',
-                            padding: '6px',
-                            borderRadius: '50%',
+                            padding: '4px 10px',
+                            borderRadius: '6px',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            color: '#888',
-                            transition: 'all 0.2s'
+                            gap: '0.4rem',
+                            color: '#555',
+                            fontSize: '0.85rem',
+                            fontWeight: 500,
+                            transition: 'all 0.2s ease-in-out'
                         }}
                         onMouseEnter={(e) => {
-                            e.currentTarget.style.color = '#333';
-                            e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.05)';
+                            e.currentTarget.style.color = '#0866ff';
+                            e.currentTarget.style.borderColor = '#0866ff';
+                            e.currentTarget.style.backgroundColor = '#f0f5ff';
                         }}
                         onMouseLeave={(e) => {
-                            e.currentTarget.style.color = '#888';
-                            e.currentTarget.style.backgroundColor = 'transparent';
+                            e.currentTarget.style.color = '#555';
+                            e.currentTarget.style.borderColor = '#ddd';
+                            e.currentTarget.style.backgroundColor = '#fff';
                         }}
                     >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                             <path d="M3 3v5h5" />
                             <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
                             <path d="M16 21h5v-5" />
                         </svg>
+                        Reset Preview
                     </button>
                 )}
             </div>
@@ -359,7 +424,35 @@ export const StaticConversionPreview: React.FC<StaticConversionPreviewProps> = (
                     Macrogame Chrome
                 </label>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {screen && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderLeft: '1px solid #ddd', paddingLeft: '1rem' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#666' }}>Gates:</span>
+                        <select 
+                            value={activeGateState}
+                            onChange={(e) => handleGateStateChange(e.target.value as 'locked' | 'unlocked')}
+                            style={selectStyle}
+                        >
+                            <option value="locked">Evaluate Locks (Default)</option>
+                            <option value="unlocked">Force Unlock All</option>
+                        </select>
+
+                        {/* Standalone Point Slider (Only shows if parent doesn't provide a score AND there are point gates) */}
+                        {previewTotalScore === undefined && hasPointGates && activeGateState === 'locked' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderLeft: '1px solid #ddd', paddingLeft: '1rem', marginLeft: '0.5rem' }}>
+                                <span style={{ fontSize: '0.85rem', color: '#666', whiteSpace: 'nowrap', width: '55px' }}>Pts: {localScore}</span>
+                                <input 
+                                    type="range" 
+                                    min="0" max="1500" step="50" 
+                                    value={localScore} 
+                                    onChange={(e) => setLocalScore(Number(e.target.value))} 
+                                    style={{ width: '200px', cursor: 'pointer' }} 
+                                />
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderLeft: screen ? '1px solid #ddd' : 'none', paddingLeft: screen ? '1rem' : 0 }}>
                     <span style={{ fontSize: '0.85rem', color: '#666' }}>Mode:</span>
                     <select 
                         value={themeMode}
@@ -371,7 +464,8 @@ export const StaticConversionPreview: React.FC<StaticConversionPreviewProps> = (
                     </select>
                 </div>
 
-                <div style={{ marginLeft: 'auto' }}>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                    {/* FUTURE MOBILE MACROGAME FEATURE (V2) 
                     <select 
                         value={orientation}
                         onChange={(e) => onOrientationChange && onOrientationChange(e.target.value as 'landscape' | 'portrait')}
@@ -380,6 +474,7 @@ export const StaticConversionPreview: React.FC<StaticConversionPreviewProps> = (
                         <option value="landscape">Landscape (16:9)</option>
                         <option value="portrait">Portrait (9:16)</option>
                     </select>
+                    */}
                 </div>
 
                 {!screen && onPreviewWidthChange && (

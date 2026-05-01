@@ -24,6 +24,11 @@ export const ConversionMethodBuilder: React.FC<ConversionMethodBuilderProps> = (
     const [themeMode, setThemeMode] = useState<'dark' | 'light'>('dark');
     const [previewOrientation, setPreviewOrientation] = useState<'landscape' | 'portrait'>('landscape');
     const [previewWidth, setPreviewWidth] = useState(60);
+    const [revealResetTrigger, setRevealResetTrigger] = useState<{ timestamp: number }>({ timestamp: 0 });
+    
+    // Play/Pause State for Transitions
+    const [previewIsPlaying, setPreviewIsPlaying] = useState(false);
+    const [hasStartedPlaying, setHasStartedPlaying] = useState(false);
 
     // --- Draft Storage ---
     const draftsRef = React.useRef<Record<string, any>>({});
@@ -400,6 +405,11 @@ export const ConversionMethodBuilder: React.FC<ConversionMethodBuilderProps> = (
                         onRefreshPreview={() => setPreviewRefreshKey(prev => prev + 1)}
                         activeTheme={themeMode}
                         previewOrientation={previewOrientation}
+                        previewIsPlaying={previewIsPlaying}
+                        hasStartedPlaying={hasStartedPlaying}
+                        onTogglePlay={() => { setPreviewIsPlaying(!previewIsPlaying); setHasStartedPlaying(true); }}
+                        onResetPreview={() => { setPreviewRefreshKey(prev => prev + 1); setPreviewIsPlaying(false); setHasStartedPlaying(false); }}
+                        onResetReveal={() => setRevealResetTrigger({ timestamp: Date.now() })}
                     />
                     <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end', paddingBottom: '1rem' }}>
                         <button type="button" onClick={onCancel} style={styles.secondaryButton}>Cancel</button>
@@ -415,10 +425,12 @@ export const ConversionMethodBuilder: React.FC<ConversionMethodBuilderProps> = (
                     refreshKey={previewRefreshKey} 
                     themeMode={themeMode}
                     onThemeChange={setThemeMode}
-                    orientation={previewOrientation} // Pass state
-                    onOrientationChange={setPreviewOrientation} // Pass setter
+                    orientation={previewOrientation} 
+                    onOrientationChange={setPreviewOrientation} 
                     previewWidth={previewWidth}
                     onPreviewWidthChange={setPreviewWidth}
+                    previewIsPlaying={previewIsPlaying}
+                    revealResetTrigger={revealResetTrigger}
                 />
             </div>
         </div>

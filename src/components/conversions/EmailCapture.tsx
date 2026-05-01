@@ -17,7 +17,7 @@ interface EmailCaptureProps {
 export const EmailCapture: React.FC<EmailCaptureProps> = ({ method, onSuccess, onError, isPortrait = false, themeMode = 'dark' }) => {
   
   const m = method as any;
-  const activeStyle = themeMode === 'light' && m.lightStyle ? m.lightStyle : m.style;
+  const activeStyle = themeMode === 'light' ? { ...m.style, ...(m.lightStyle || {}) } : m.style;
 
   const safeVal = (val: any, fallback: number) => {
       const num = Number(val);

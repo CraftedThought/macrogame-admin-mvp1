@@ -3,7 +3,7 @@
 .container {
   position: relative;
   width: 100%;
-  max-width: 650px; /* A reasonable max-width for a popup */
+  max-width: 650px; /* Restored: A reasonable max-width for a popup */
   background-color: #1c1e21;
   border-radius: 8px;
   box-sizing: border-box;
@@ -62,4 +62,31 @@
 .exitButton img, .muteButton img {
   width: 65%;
   height: 65%;
+}
+
+.restartButton {
+  position: absolute;
+  z-index: 2;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: #333333;
+  color: #eeeeee;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  top: 3%;
+  left: 2%; /* Positioned on the left side to oppose the right-side buttons */
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.restartButton:hover {
+  background-color: #444444;
+}
+
+.restartButton svg {
+  width: 14px;
+  height: 14px;
 }

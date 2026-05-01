@@ -305,6 +305,7 @@ export const StaticMicrogamePreview: React.FC<StaticMicrogamePreviewProps> = ({
                     position: 'absolute', top: '50%', left: '50%', width: currentSize.width, height: currentSize.height,
                     transform: `translate(-50%, -50%) scale(${scale})`, transformOrigin: 'center center',
                     boxShadow: '0 10px 30px rgba(0,0,0,0.3)', backgroundColor: '#000', overflow: 'hidden',
+                    fontSize: '16px', // Enforce strict ratio scaling
                     cursor: (gameState === 'overlay' && !isOverlayEnabled) ? 'pointer' : 'default' 
                 }}>
                     <Suspense fallback={<div style={{ ...styles.centerContent, color: '#fff', height: '100%' }}>Loading Engine...</div>}>

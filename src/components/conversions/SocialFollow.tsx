@@ -99,7 +99,7 @@ export const SocialFollow: React.FC<SocialFollowProps> = ({ method, onSuccess, t
       return !isNaN(num) && val !== '' && val !== null && val !== undefined ? num : fallback;
   };
   
-  const activeStyle = themeMode === 'light' && method.lightStyle ? method.lightStyle : method.style;
+  const activeStyle = themeMode === 'light' ? { ...method.style, ...(method.lightStyle || {}) } : method.style;
   
   const activeIconColor = activeStyle?.iconColor || (themeMode === 'light' ? '#000000' : '#ffffff');
 

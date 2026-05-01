@@ -1,6 +1,6 @@
 /* src/components/conversions/ConversionScreenHost.tsx */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ConversionScreen, ConversionMethod, MaskConfig } from '../../types';
 import { useData } from '../../hooks/useData';
 import { CouponDisplay, EmailCapture, FormSubmit, LinkRedirect, SocialFollow } from './index';
@@ -8,6 +8,7 @@ import { styles } from '../../App.styles';
 import 'react-quill-new/dist/quill.snow.css'; // 1. Import Quill Styles
 import { MethodContainer } from './MethodContainer';
 import { getMaskConfig } from '../../utils/maskUtils';
+import { TransitionRenderer } from '../builders/macrogame/TransitionRenderer';
 
 interface ConversionScreenHostProps {
   screen: ConversionScreen;
@@ -26,15 +27,43 @@ interface ConversionScreenHostProps {
   playScreenTransitionAudio?: () => void;
   playTimerTickAudio?: () => void;
   playTimerGoAudio?: () => void;
+  triggerResolutionReplay?: (keepPoints: boolean, targetIndex: number) => void;
+  hotSwapConversionScreen?: (fallbackScreenId: string) => void;
+  previewGateStateOverride?: 'locked' | 'unlocked';
+  revealResetTrigger?: { instanceId?: string; timestamp: number };
 }
 
-export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ screen, totalScore = 0, pointCosts = {}, redeemPoints, themeMode = 'dark', overrideWidth, contentHeight, showLayoutGuides = false, hasProgressTracker = false, hasProgressLabels = false, isActive = true, playEventAudio, playClickAudio, playScreenTransitionAudio, playTimerTickAudio, playTimerGoAudio }) => {
+export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ screen, totalScore = 0, pointCosts = {}, redeemPoints, themeMode = 'dark', overrideWidth, contentHeight, showLayoutGuides = false, hasProgressTracker = false, hasProgressLabels = false, isActive = true, playEventAudio, playClickAudio, playScreenTransitionAudio, playTimerTickAudio, playTimerGoAudio, triggerResolutionReplay, hotSwapConversionScreen, previewGateStateOverride, revealResetTrigger }) => {
   const { allConversionMethods } = useData();
   const [completedMethodIds, setCompletedMethodIds] = useState<Set<string>>(new Set());
+
+  // --- Listen for selective Reveal Resets from the Builder ---
+  useEffect(() => {
+      if (revealResetTrigger?.timestamp) {
+          if (revealResetTrigger.instanceId) {
+              setCompletedMethodIds(prev => {
+                  const next = new Set(prev);
+                  next.delete(revealResetTrigger.instanceId!); // Relock only this specific method
+                  return next;
+              });
+          } else {
+              // Global reset from the Macrogame header
+              setCompletedMethodIds(new Set()); 
+          }
+      }
+  }, [revealResetTrigger]);
 
   const handleMethodSuccess = (instanceId: string) => {
     setCompletedMethodIds(prev => new Set(prev).add(instanceId));
   };
+
+  // --- Global Override Injection (Memoized to prevent infinite renders) ---
+  // If the preview tool forces an unlock, we simulate that ALL methods are completed.
+  const effectiveCompletedIds = useMemo(() => {
+      return previewGateStateOverride === 'unlocked' 
+          ? new Set((screen.methods || []).map(m => m.instanceId)) 
+          : completedMethodIds;
+  }, [previewGateStateOverride, completedMethodIds, screen.methods]);
 
   const processedMethods = useMemo(() => {
     return (screen.methods || [])
@@ -46,7 +75,10 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
         let isLocked = false;
         let pointCost: number | undefined = undefined;
 
-        if (!completedMethodIds.has(screenMethod.instanceId)) {
+        // Force unlock globally if preview tool requires it
+        if (previewGateStateOverride === 'unlocked') {
+            isLocked = false;
+        } else if (!effectiveCompletedIds.has(screenMethod.instanceId)) {
             if (gate) {
                 // 1. Success Gate
                 if (gate.type === 'on_success') {
@@ -75,7 +107,76 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
         return { ...screenMethod, data: methodData, isLocked, pointCost };
       })
       .filter((method): method is NonNullable<typeof method> => !!method); 
-  }, [screen.methods, allConversionMethods, completedMethodIds, totalScore, pointCosts]);
+  // Added effectiveCompletedIds and previewGateStateOverride to dependencies
+  }, [screen.methods, allConversionMethods, effectiveCompletedIds, totalScore, pointCosts, previewGateStateOverride]);
+
+  // --- Helper to render Resolution Routing Buttons ---
+  const renderResolutionButtons = (resolutionConfig: any) => {
+      if (!resolutionConfig) return null;
+      const { isPlayAgainEnabled, isContinueEnabled, playAgainBehavior, playAgainTargetIndex, routeTargetId, transition, secondaryButtonConfig, secondaryButtonStyle, lightSecondaryButtonStyle } = resolutionConfig;
+
+      if (!isPlayAgainEnabled && !isContinueEnabled) return null;
+
+      let slot1Action: () => void;
+      let slot1Text: string;
+      let slot2Action: (() => void) | undefined = undefined;
+      let slot2Text: string | undefined = undefined;
+      let slot2Struct = secondaryButtonConfig || {};
+      let slot2Style = themeMode === 'light' ? (lightSecondaryButtonStyle || {}) : (secondaryButtonStyle || {});
+
+      // Logic: Dynamically assign Primary/Secondary based on toggles
+      if (isPlayAgainEnabled) {
+          slot1Action = () => triggerResolutionReplay?.(playAgainBehavior === 'keep_points', playAgainTargetIndex || 0);
+          slot1Text = transition?.buttonConfig?.text || 'Play Again';
+
+          if (isContinueEnabled) {
+              slot2Action = () => { if (routeTargetId) hotSwapConversionScreen?.(routeTargetId); };
+              slot2Text = secondaryButtonConfig?.text || 'Continue';
+          }
+      } else if (isContinueEnabled) {
+          slot1Action = () => { if (routeTargetId) hotSwapConversionScreen?.(routeTargetId); };
+          slot1Text = transition?.buttonConfig?.text || 'Continue';
+      } else {
+          return null; // Safety catch
+      }
+
+      const sBorder = (slot2Struct.strokeStyle && slot2Struct.strokeStyle !== 'none') 
+          ? `${slot2Struct.strokeWidth === '' ? 0 : (slot2Struct.strokeWidth ?? 2)}px ${slot2Struct.strokeStyle} ${slot2Style.strokeColor || '#ffffff'}` 
+          : 'none';
+
+      return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%', marginTop: '1.25rem', alignItems: 'center' }}>
+              <TransitionRenderer 
+                  transition={transition} 
+                  onAdvance={slot1Action!} 
+                  isActive={isActive} 
+                  showLayoutGuides={showLayoutGuides} 
+                  theme={themeMode}
+                  defaultButtonText={slot1Text!}
+              />
+              {slot2Action && (
+                  <button 
+                      onClick={(e) => { e.stopPropagation(); slot2Action!(); }}
+                      style={{
+                          width: slot2Struct.widthMode === 'max' ? '100%' : (slot2Struct.widthMode === 'custom' ? `${slot2Struct.customWidth === '' ? 0 : (slot2Struct.customWidth ?? 100)}%` : 'auto'),
+                          padding: `${slot2Struct.paddingVertical === '' ? 0 : (slot2Struct.paddingVertical ?? 12)}px ${slot2Struct.paddingHorizontal === '' ? 0 : (slot2Struct.paddingHorizontal ?? 32)}px`, 
+                          fontSize: '1rem', fontWeight: 'bold',
+                          backgroundColor: slot2Style.backgroundColor || 'transparent', 
+                          color: slot2Style.textColor || '#ffffff', 
+                          border: sBorder, 
+                          borderRadius: `${slot2Struct.borderRadius === '' ? 0 : (slot2Struct.borderRadius ?? 6)}px`,
+                          cursor: 'pointer',
+                          transition: (slot2Struct.enableHoverAnimation !== false) ? 'transform 0.1s' : 'none'
+                      }}
+                      onMouseEnter={(e) => { if (slot2Struct.enableHoverAnimation !== false) e.currentTarget.style.transform = 'scale(1.05)' }}
+                      onMouseLeave={(e) => { if (slot2Struct.enableHoverAnimation !== false) e.currentTarget.style.transform = 'scale(1)' }}
+                  >
+                      {slot2Text}
+                  </button>
+              )}
+          </div>
+      );
+  };
 
   const spacing = screen.style?.spacing !== undefined ? screen.style.spacing : 20;
 
@@ -115,12 +216,13 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
     
     /* List Handling - Critical for Live Preview */
     .link-content-wrapper.ql-editor ul, .link-content-wrapper.ql-editor ol { 
-        padding-left: 0 !important; 
+        padding-left: 1.5em !important; 
         margin-left: 0 !important; 
-        list-style-position: inside !important;
-        text-align: left; /* Lists usually look best left-aligned even on centered screens */
-        display: inline-block; /* Allows list to sit inside centered container nicely */
+        list-style-position: outside !important; 
+        text-align: left; 
+        display: inline-block; 
         width: 100%;
+        box-sizing: border-box;
     }
     .link-content-wrapper.ql-editor li { padding: 0 !important; margin: 0 !important; }
     
@@ -165,22 +267,24 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
   const contentGuideStyle: React.CSSProperties = showLayoutGuides ? { outline: '2px dotted rgba(255, 193, 7, 0.9)', outlineOffset: '-2px', backgroundColor: 'rgba(255, 193, 7, 0.15)', boxSizing: 'border-box' } : {};
 
   // --- Logic: Identify methods that should be hidden because they were "replaced" ---
-  // A method is hidden if:
-  // 1. It is a prerequisite for another method (Method B)
-  // 2. Method B has 'replacePrerequisite' = true
-  // 3. Method A (the prerequisite) is COMPLETE (otherwise we still need to see it to do it)
-  // 4. Method B is NOT complete yet (optional: usually we keep B visible and A hidden once swap happens)
-  
   const replacedMethodIds = new Set<string>();
   
   processedMethods.forEach(m => {
-      if (m.gate?.type === 'on_success' && m.gate.replacePrerequisite && m.gate.methodInstanceId) {
+      // Securely parse the boolean intent to prevent string truthiness bugs ('"false"' == true)
+      const isReplace = m.gate?.replacePrerequisite === true || String(m.gate?.replacePrerequisite) === 'true';
+      
+      if (m.gate?.type === 'on_success' && isReplace && m.gate.methodInstanceId) {
           // Check if the prerequisite is actually complete
-          if (completedMethodIds.has(m.gate.methodInstanceId)) {
+          if (effectiveCompletedIds.has(m.gate.methodInstanceId)) {
               replacedMethodIds.add(m.gate.methodInstanceId);
           }
       }
   });
+
+  // --- Smart Spacers to prevent Flexbox "center" from pushing content off the top ---
+  const progressBuffer = hasProgressTracker ? (hasProgressLabels ? 72 : 48) : 0;
+  const topSpacer = (vAlign === 'center' || vAlign === 'bottom') ? <div style={{ flex: '1 1 auto', minHeight: progressBuffer }}></div> : null;
+  const bottomSpacer = (vAlign === 'center' || vAlign === 'top') ? <div style={{ flex: '1 1 auto', minHeight: 0 }}></div> : null;
 
   return (
     <div className="macrogame-conversion-screen" style={{
@@ -189,7 +293,7 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center', // <--- This perfectly centers the 95% safe area
+      justifyContent: 'center',
       boxSizing: 'border-box',
       textAlign: 'center',
       // --- THEME OVERRIDES ---
@@ -209,7 +313,7 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
           alignItems: 'center',
           boxSizing: 'border-box'
       }}>
-          {/* SAFE AREA (Red Box) */}
+          {/* SAFE AREA (Width constraints) */}
           <div style={{ 
               width: `${safeWidth}%`, 
               height: '100%', 
@@ -219,56 +323,42 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
               boxSizing: 'border-box',
               ...globalGuideStyle 
           }}>
-              {/* INNER WRAPPER (Padding removed to inherit Macrogame Global Layout) */}
-              <div style={{
-                  flex: 1,
+              
+              {/* SCROLLABLE INNER CONTAINER */}
+              {/* Note: We explicitly DO NOT use justifyContent here. Spacers handle the centering. */}
+              <div className="custom-scrollbar" style={{
                   width: '100%',
+                  flex: 1,
                   display: 'flex',
                   flexDirection: 'column',
-                  boxSizing: 'border-box',
-                  minHeight: 0
+                  alignItems: 'center',
+                  overflowY: 'auto',
+                  overflowX: 'hidden',
+                  minHeight: 0 // CRITICAL for nested Flexbox scrolling
               }}>
-                  {/* CONTENT CENTERING WRAPPER */}
-                  <div style={{
-                      flex: 1,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      width: '100%',
-                      minHeight: 0,
+                  {topSpacer}
+
+                  {/* CONTENT WRAPPER */}
+                  <div style={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      width: '100%', 
+                      alignItems: 'center', 
+                      flex: '0 0 auto', // Allows content to dictate height 
+                      padding: '2px 0',
                       ...contentGuideStyle
                   }}>
                       
-                      {/* Top Spacer / Progress Buffer Logic */}
-                      {(vAlign === 'center' || vAlign === 'bottom') ? (
-                          <div style={{ flex: '1 1 auto', minHeight: hasProgressTracker ? (hasProgressLabels ? 72 : 48) : 0 }}></div>
-                      ) : (
-                          <div style={{ flex: '0 0 auto', height: hasProgressTracker ? (hasProgressLabels ? 72 : 48) : 0 }}></div>
+                      {(screen.headline || screen.bodyText) && (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: `${screenTextSpacing}px`, width: '100%', flexShrink: 0 }}>
+                              {screen.headline && (
+                                  <div className="link-content-wrapper ql-editor" style={{ width: '100%' }} dangerouslySetInnerHTML={{ __html: screen.headline }} />
+                              )}
+                              {screen.bodyText && (
+                                  <div className="link-content-wrapper ql-editor" style={{ width: '100%' }} dangerouslySetInnerHTML={{ __html: screen.bodyText }} />
+                              )}
+                          </div>
                       )}
-
-                      {/* TOP LAYER (TEXT) */}
-                      <div className="custom-scrollbar" style={{
-                          display: 'flex', 
-                          flexDirection: 'column', 
-                          alignItems: 'center', 
-                          width: '100%', 
-                          flex: '0 1 auto', 
-                          overflowY: 'auto', 
-                          overflowX: 'hidden', 
-                          minHeight: 0,
-                          paddingRight: '4px'
-                      }}>
-                          {(screen.headline || screen.bodyText) && (
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: `${screenTextSpacing}px`, width: '100%', flexShrink: 0 }}>
-                                  {screen.headline && (
-                                      <div className="link-content-wrapper ql-editor" style={{ width: '100%' }} dangerouslySetInnerHTML={{ __html: screen.headline }} />
-                                  )}
-                                  {screen.bodyText && (
-                                      <div className="link-content-wrapper ql-editor" style={{ width: '100%' }} dangerouslySetInnerHTML={{ __html: screen.bodyText }} />
-                                  )}
-                              </div>
-                          )}
-                      </div>
 
                       {/* Gap between text group and methods list */}
                       <div style={{ flexShrink: 0, height: `${screenMethodSpacing}px` }} />
@@ -297,51 +387,102 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
                                           const cost = method.pointCost || 0;
                                           const canAfford = cost > 0 ? totalScore >= cost : true;
                                           
+                                          // 1. Resolve Dynamic Content based on Affordability
+                                          const rawMaskHeadline = canAfford ? method.gate.maskConfig?.headline : (method.gate.maskConfig?.unaffordableHeadline || "LOCKED");
+                                          const rawMaskBody = canAfford ? method.gate.maskConfig?.body : (method.gate.maskConfig?.unaffordableBody || "");
+                                          const rawMaskIcon = canAfford ? method.gate.maskConfig?.showIcon : (method.gate.maskConfig?.unaffordableShowIcon ?? true);
+
+                                          // 2. Clone the mask config and overwrite the visual text dynamically
+                                          const dynamicMaskConfig = {
+                                              ...method.gate.maskConfig,
+                                              headline: rawMaskHeadline,
+                                              body: rawMaskBody,
+                                              showIcon: rawMaskIcon
+                                          };
+
                                           maskConfig = getMaskConfig(
-                                              method.gate.maskConfig,
-                                              "Use your points to purchase this reward!",
-                                              `Spend ${cost} points.`
+                                              dynamicMaskConfig as any,
+                                              canAfford ? "Use your points to purchase this reward!" : "Keep Playing!",
+                                              canAfford ? `Spend ${cost} points.` : "You don't have enough points yet."
                                           );
                                           isCovered = true;
 
-                                          const buttonLabel = cost > 0 
-                                              ? (canAfford ? `Buy for ${cost} Points` : `Need ${cost - totalScore} more`) 
-                                              : `Purchase (Test)`;
-                                          
-                                          const activeMaskStyle = (themeMode === 'light' && maskConfig?.lightStyle) ? maskConfig.lightStyle : maskConfig?.style;
-                                          const btnBg = activeMaskStyle?.buttonColor || (canAfford ? '#2ecc71' : '#555');
-                                          const btnText = activeMaskStyle?.buttonTextColor || 'white';
+                                          if (canAfford) {
+                                              const customBtnText = method.gate.maskConfig?.purchaseButtonText || "Buy for {{cost}} Points";
+                                              const buttonLabel = cost > 0 ? customBtnText.replace(/\{\{cost\}\}/g, String(cost)) : `Purchase (Test)`;
+                                              const activeMaskStyle = (themeMode === 'light' && maskConfig?.lightStyle) ? maskConfig.lightStyle : maskConfig?.style;
+                                              const btnBg = activeMaskStyle?.buttonColor || '#2ecc71';
+                                              const btnText = activeMaskStyle?.buttonTextColor || 'white';
+                                              const labelColor = activeMaskStyle?.pointLabelColor || (themeMode === 'light' ? '#000000' : '#ffffff');
 
-                                          actionSlot = (
-                                              <button 
-                                                  onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      if (canAfford) {
-                                                          redeemPoints?.(cost);
-                                                          handleMethodSuccess(method.instanceId);
-                                                          const played = playEventAudio ? playEventAudio('pointPurchaseSuccess') : false;
-                                                          if (!played && playClickAudio) playClickAudio('primary');
-                                                      } else {
-                                                          const played = playEventAudio ? playEventAudio('pointPurchaseFailure') : false;
-                                                          if (!played && playClickAudio) playClickAudio('primary');
-                                                      }
-                                                  }}
-                                                  // We intentionally do not 'disable' the button so it can still be clicked to trigger the Failure sound
-                                                  style={{
-                                                      padding: '0.6rem 1.2rem',
-                                                      backgroundColor: btnBg, 
-                                                      color: btnText,         
-                                                      border: 'none',
-                                                      borderRadius: '6px',
-                                                      cursor: canAfford ? 'pointer' : 'pointer',
-                                                      fontWeight: 'bold',
-                                                      marginTop: '0.5rem',
-                                                      opacity: canAfford ? 1 : 0.7
-                                                  }}
-                                              >
-                                                  {buttonLabel}
-                                              </button>
-                                          );
+                                              actionSlot = (
+                                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+                                                      {method.gate.maskConfig?.showPointLabel && (
+                                                          <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: labelColor, marginBottom: '0.75rem', letterSpacing: '0.5px' }}>
+                                                              {totalScore} / {cost} Points
+                                                          </div>
+                                                      )}
+                                                      <button 
+                                                          onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              redeemPoints?.(cost);
+                                                              handleMethodSuccess(method.instanceId);
+                                                              const played = playEventAudio ? playEventAudio('pointPurchaseSuccess') : false;
+                                                              if (!played && playClickAudio) playClickAudio('primary');
+                                                          }}
+                                                          style={{
+                                                              padding: '0.6rem 1.2rem',
+                                                              backgroundColor: btnBg, 
+                                                              color: btnText,         
+                                                              border: 'none',
+                                                              borderRadius: '6px',
+                                                              cursor: 'pointer',
+                                                              fontWeight: 'bold',
+                                                              marginTop: 0
+                                                          }}
+                                                      >
+                                                          {buttonLabel}
+                                                      </button>
+                                                  </div>
+                                              );
+                                          } else {
+                                              // Insufficient points: Try to render Resolution Routing Buttons
+                                              const routingButtons = renderResolutionButtons(method.gate.resolutionConfig);
+                                              const activeMaskStyle = (themeMode === 'light' && maskConfig?.lightStyle) ? maskConfig.lightStyle : maskConfig?.style;
+                                              const labelColor = activeMaskStyle?.pointLabelColor || (themeMode === 'light' ? '#000000' : '#ffffff');
+
+                                              actionSlot = (
+                                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+                                                      {method.gate.maskConfig?.showPointLabel && (
+                                                          <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: labelColor, marginBottom: '0.75rem', letterSpacing: '0.5px' }}>
+                                                              {totalScore} / {cost} Points
+                                                          </div>
+                                                      )}
+                                                      {routingButtons || (
+                                                          <button 
+                                                              onClick={(e) => {
+                                                                  e.stopPropagation();
+                                                                  const played = playEventAudio ? playEventAudio('pointPurchaseFailure') : false;
+                                                                  if (!played && playClickAudio) playClickAudio('primary');
+                                                              }}
+                                                              style={{
+                                                                  padding: '0.6rem 1.2rem',
+                                                                  backgroundColor: activeMaskStyle?.buttonColor || '#555', 
+                                                                  color: activeMaskStyle?.buttonTextColor || 'white',         
+                                                                  border: 'none',
+                                                                  borderRadius: '6px',
+                                                                  cursor: 'pointer',
+                                                                  fontWeight: 'bold',
+                                                                  marginTop: 0,
+                                                                  opacity: 0.7
+                                                              }}
+                                                          >
+                                                              Need {cost - totalScore} more
+                                                          </button>
+                                                      )}
+                                                  </div>
+                                              );
+                                          }
                                       }
                                       // Point Threshold
                                       else if (method.gate?.type === 'point_threshold') {
@@ -359,16 +500,21 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
                                           const barFill = activeMaskStyle?.progressBarColor || '#f1c40f';
                                           const showLabel = (maskConfig as any)?.showPointLabel;
 
+                                          // Fetch our newly separated Point Label color
+                                          const labelColor = activeMaskStyle?.pointLabelColor || (themeMode === 'light' ? '#000000' : '#ffffff');
+
                                           actionSlot = (
                                               <div style={{ width: '100%', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                                                   <div style={{ width: '100%', height: '8px', backgroundColor: barBg, borderRadius: '4px', overflow: 'hidden' }}>
                                                       <div style={{ width: `${progress}%`, height: '100%', backgroundColor: barFill, transition: 'width 0.5s ease' }} />
                                                   </div>
                                                   {showLabel && (
-                                                      <span style={{ fontSize: '0.8rem', opacity: 0.9 }}>
+                                                      <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: labelColor, letterSpacing: '0.5px' }}>
                                                           {totalScore} / {req} Points
                                                       </span>
                                                   )}
+                                                  {/* INJECT RESOLUTION ROUTING BUTTONS */}
+                                                  {renderResolutionButtons(method.gate.resolutionConfig)}
                                               </div>
                                           );
                                       }
@@ -389,6 +535,8 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
                                   } 
                                   // Case B: Coupon Click to Reveal
                                   else if (method.data.type === 'coupon_display' && (method.data as any).clickToReveal) {
+                                      // CRITICAL FIX: Use 'completedMethodIds' strictly instead of 'effectiveCompletedIds'
+                                      // so "Force Unlock All" does not bypass the visual coupon reveal interaction.
                                       const isRevealed = completedMethodIds.has(method.instanceId);
                                       if (!isRevealed) {
                                           const revealScope = (method.data as any).revealScope;
@@ -505,7 +653,9 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
                                       <div className="link-content-wrapper ql-editor" style={{ marginTop: '1rem', width: '100%', flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: method.contentBelow }} />
                                   ) : null;
 
-                                  const activeStyle = (themeMode === 'light' && method.data.lightStyle) ? method.data.lightStyle : (method.data.style || {});
+                                  const activeStyle = themeMode === 'light' 
+                                      ? { ...(method.data.style || {}), ...(method.data.lightStyle || {}) } 
+                                      : (method.data.style || {});
 
                                   return (
                                       <div key={key} style={{ width: '100%', flexShrink: 0 }}>
@@ -525,13 +675,10 @@ export const ConversionScreenHost: React.FC<ConversionScreenHostProps> = ({ scre
                                   );
                               })}
                           </div>
-
-                      {/* Bottom Spacer */}
-                      {(vAlign === 'center' || vAlign === 'top') && (
-                          <div style={{ flex: '1 1 auto', minHeight: 0 }}></div>
-                      )}
-
                   </div>
+
+                  {bottomSpacer}
+
               </div>
           </div>
       </div>

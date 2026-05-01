@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 // --- REFACTOR: Import DeliveryContainer instead of Popup ---
-import { Macrogame, Microgame, DeliveryContainer, Alert, CustomMicrogame } from '../types';
+import { Macrogame, Microgame, DeliveryContainer, Alert, CustomMicrogame, ConversionScreen, ConversionMethod } from '../types';
 import { UI_SKINS } from '../constants';
 // --- Import Definitions for Rules Hydration ---
 import { MICROGAME_DEFINITIONS } from '../microgames/definitions/index';
@@ -344,11 +344,19 @@ export const getProgressionValue = (baseValue: number, rate: number, intervalsPa
  * @param gameControls The controls text of the active microgame.
  * @returns {string} The parsed HTML string ready for rendering.
  */
-export const parseGameMergeTags = (htmlString: string, gameName: string = 'Microgame', gameControls: string = 'Get Ready!'): string => {
+export const parseGameMergeTags = (
+    htmlString: string, 
+    gameName: string = 'Microgame', 
+    gameControls: string = 'Get Ready!',
+    targetScore?: number,
+    targetRewardName?: string
+): string => {
     if (!htmlString) return '';
     return htmlString
         .replace(/\{\{game_title\}\}/gi, gameName)
-        .replace(/\{\{game_controls\}\}/gi, gameControls);
+        .replace(/\{\{game_controls\}\}/gi, gameControls)
+        .replace(/\{\{target_points\}\}/gi, targetScore !== undefined ? String(targetScore) : '???')
+        .replace(/\{\{target_reward\}\}/gi, targetRewardName || 'Reward');
 };
 
 /**
@@ -585,4 +593,137 @@ export const calculateAlignmentScore = (macroTags: TaxonomyTags, microTags: Taxo
 
     // Tier 2: Versatile/Generic (No explicit conflicts, but no specific matching tags either)
     return { tier: 'neutral', score: 50 };
+};
+
+/**
+ * Recursively traverses a Conversion Screen's method gates to find the true point cost
+ * required to unlock a specific target method, safely resolving 'on_success' dependency chains.
+ */
+export const getEffectiveTargetCost = (
+    targetInstanceId: string | undefined,
+    methods: ConversionScreen['methods'] | undefined,
+    pointCosts: { [methodInstanceId: string]: number } | undefined,
+    visited = new Set<string>()
+): number => {
+    if (!targetInstanceId || !methods || !pointCosts || visited.has(targetInstanceId)) return 0;
+    
+    // Prevent infinite loops in case of malformed circular dependencies
+    visited.add(targetInstanceId);
+
+    const method = methods.find(m => m.instanceId === targetInstanceId);
+    if (!method || !method.gate) return 0;
+
+    if (method.gate.type === 'point_purchase' || method.gate.type === 'point_threshold') {
+        return pointCosts[targetInstanceId] || 0;
+    }
+
+    if (method.gate.type === 'on_success' && method.gate.methodInstanceId) {
+        return getEffectiveTargetCost(method.gate.methodInstanceId, methods, pointCosts, visited);
+    }
+
+    return 0;
+};
+
+/**
+ * Intelligently resolves the target instance ID. If one is explicitly set, it returns it.
+ * If not, it scans the screen methods, finds the point gate with the highest cost, and traverses
+ * forward through any "on_success" dependencies to auto-select the TRUE end-reward of the chain.
+ */
+export const getResolvedTargetInstanceId = (
+    explicitTargetId: string | undefined,
+    methods: ConversionScreen['methods'] | undefined,
+    pointCosts: { [methodInstanceId: string]: number } | undefined
+): string | undefined => {
+    if (explicitTargetId === 'none') return undefined; // Explicitly hidden
+    if (explicitTargetId) return explicitTargetId;     // Explicitly selected
+
+    if (!methods || !pointCosts) return undefined;
+
+    let highestCost = -1;
+    let startId: string | undefined = undefined;
+
+    // 1. Find the start of the highest cost chain
+    methods.forEach(m => {
+        if (m.gate?.type === 'point_purchase' || m.gate?.type === 'point_threshold') {
+            const cost = pointCosts[m.instanceId] || 0;
+            if (cost > highestCost) {
+                highestCost = cost;
+                startId = m.instanceId;
+            }
+        }
+    });
+
+    if (!startId) return undefined;
+
+    // 2. Traverse forward to find the end-method of this chain
+    let currentId = startId;
+    let keepSearching = true;
+    let visited = new Set<string>();
+
+    while (keepSearching) {
+        visited.add(currentId);
+        // Find a method whose prerequisite is currentId
+        const nextMethod = methods.find(m => 
+            m.gate?.type === 'on_success' && m.gate.methodInstanceId === currentId
+        );
+        
+        if (nextMethod && !visited.has(nextMethod.instanceId)) {
+            currentId = nextMethod.instanceId;
+        } else {
+            keepSearching = false;
+        }
+    }
+
+    return currentId;
+};
+
+/**
+ * Retrieves the name of the target reward method for UI display and merge tags,
+ * prioritizing the admin's custom name override if it exists.
+ */
+export const getTargetRewardName = (
+    targetInstanceId: string | undefined,
+    screenMethods: ConversionScreen['methods'] | undefined,
+    allMethods: ConversionMethod[] | undefined,
+    nameOverride?: string
+): string => {
+    if (nameOverride && nameOverride.trim() !== '') return nameOverride.trim();
+    if (!targetInstanceId || !screenMethods || !allMethods) return '';
+    
+    const methodLink = screenMethods.find(m => m.instanceId === targetInstanceId);
+    if (!methodLink) return '';
+    
+    const methodData = allMethods.find(m => m.id === methodLink.methodId);
+    return methodData?.name || 'Reward';
+};
+
+/**
+ * Traces a dependency chain of conversion methods from a starting instance ID
+ * and returns an ordered array of the method names in that chain.
+ */
+export const getRewardChain = (
+    startInstanceId: string,
+    methods: ConversionScreen['methods'] | undefined,
+    allMethods: ConversionMethod[] | undefined
+): string[] => {
+    if (!methods || !allMethods) return [];
+    
+    const chainNames: string[] = [];
+    let currentId: string | undefined = startInstanceId;
+    let visited = new Set<string>();
+
+    while (currentId && !visited.has(currentId)) {
+        visited.add(currentId);
+        const screenMethod = methods.find(m => m.instanceId === currentId);
+        if (screenMethod) {
+            const methodData = allMethods.find(m => m.id === screenMethod.methodId);
+            chainNames.push(methodData?.name || 'Unknown Reward');
+        }
+
+        // Find the next method whose prerequisite is the current one
+        const nextMethod = methods.find(m => m.gate?.type === 'on_success' && m.gate.methodInstanceId === currentId);
+        currentId = nextMethod?.instanceId;
+    }
+
+    return chainNames;
 };

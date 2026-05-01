@@ -13,17 +13,27 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
     const [isMuted, setIsMuted] = useState(false);
     const [totalScore, setTotalScore] = useState(0);
     const [scoreLedger, setScoreLedger] = useState<ScoreLedgerItem[]>([]);
-    const [gameKey, setGameKey] = useState(0); // Forces the React component to remount on jumps
+    const [gameKey, setGameKey] = useState(0); 
 
-    // Refs to track score for "Play Again" resets
     const scoreRef = useRef(totalScore);
-    const scoreAtStartOfGameRef = useRef(0);
     
-    // Keep scoreRef perfectly in sync with totalScore state
+    // Keep ref in sync for instant audio triggers
     useEffect(() => { scoreRef.current = totalScore; }, [totalScore]);
   
     const modeRef = useRef(mode);
     useEffect(() => { modeRef.current = mode; }, [mode]);
+
+    const isMutedRef = useRef(isMuted);
+    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+
+    // Keep activeGameData in sync with the macrogame flow (vital for data hydration and live edits)
+    useEffect(() => {
+        if (macrogame && ['title', 'controls', 'combined', 'game', 'result'].includes(view)) {
+            const targetIndex = view === 'result' ? Math.max(0, gameIndexRef.current - 1) : gameIndexRef.current;
+            const expectedData = macrogame.flow[targetIndex] as unknown as MicrogameData || null;
+            setActiveGameData(expectedData);
+        }
+    }, [macrogame, view]);
 
     const audioRef = useRef<{ [key: string]: HTMLAudioElement }>({});
     const gameIndexRef = useRef(0);
@@ -90,7 +100,7 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
     }, [macrogame, view]);
 
     const playClickAudio = useCallback((buttonType: 'primary' | 'secondary' = 'primary') => {
-        if (modeRef.current === 'inspection') return;
+        if (modeRef.current === 'inspection' || isMutedRef.current) return;
         const track = getAudioTrack('buttonClick', buttonType);
         const url = track?.url || (track?.libraryId && track.libraryId !== 'none' ? MACROGAME_MUSIC_LIBRARY.find(t => t.id === track.libraryId)?.path : null);
         if (url) {
@@ -110,7 +120,7 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
     }, [getAudioTrack]);
 
     const playScreenTransitionAudio = useCallback(() => {
-        if (modeRef.current === 'inspection') return;
+        if (modeRef.current === 'inspection' || isMutedRef.current) return;
         const track = getAudioTrack('screenTransition');
         const url = track?.url || (track?.libraryId && track.libraryId !== 'none' ? MACROGAME_MUSIC_LIBRARY.find(t => t.id === track.libraryId)?.path : null);
         if (url) {
@@ -129,7 +139,7 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
     }, [getAudioTrack]);
 
     const playTimerTickAudio = useCallback(() => {
-        if (modeRef.current === 'inspection') return;
+        if (modeRef.current === 'inspection' || isMutedRef.current) return;
         const track = getAudioTrack('timerTick');
         const url = track?.url || (track?.libraryId && track.libraryId !== 'none' ? MACROGAME_MUSIC_LIBRARY.find(t => t.id === track.libraryId)?.path : null);
         if (url) {
@@ -148,7 +158,7 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
     }, [getAudioTrack]);
 
     const playTimerGoAudio = useCallback(() => {
-        if (modeRef.current === 'inspection') return;
+        if (modeRef.current === 'inspection' || isMutedRef.current) return;
         const track = getAudioTrack('timerGo');
         const url = track?.url || (track?.libraryId && track.libraryId !== 'none' ? MACROGAME_MUSIC_LIBRARY.find(t => t.id === track.libraryId)?.path : null);
         if (url) {
@@ -167,7 +177,7 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
     }, [getAudioTrack]);
 
     const playScoreTallyAudio = useCallback(() => {
-        if (modeRef.current === 'inspection' || !macrogame?.audioConfig) return;
+        if (modeRef.current === 'inspection' || !macrogame?.audioConfig || isMutedRef.current) return;
         const stageKey = `flow_${Math.max(0, gameIndexRef.current - 1)}_result`;
         const track = macrogame.audioConfig.stages?.[stageKey]?.scoreTally;
         const url = track?.url || (track?.libraryId && track.libraryId !== 'none' ? MACROGAME_MUSIC_LIBRARY.find(t => t.id === track.libraryId)?.path : null);
@@ -195,7 +205,7 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
         if (!config) return false;
 
         // INTELLIGENCE: If explicitly muted, return true to tell the caller it was "handled" so fallbacks don't trigger
-        if (config.libraryId === 'mute') return true; 
+        if (config.libraryId === 'mute' || isMutedRef.current) return true;
 
         const audioUrl = config.url || (config.libraryId && config.libraryId !== 'none' ? MACROGAME_MUSIC_LIBRARY.find(t => t.id === config.libraryId)?.path : null);
         
@@ -331,15 +341,16 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
             return;
         }
 
-        // --- Reset points if navigating backwards in inspection mode ---
-        if (modeRef.current === 'inspection' && expectedIndex < gameIndexRef.current) {
+        // --- SIMPLIFIED RESET LOGIC ---
+        // Only wipe points if we are jumping back to the absolute beginning of the flow
+        if (targetView === 'intro' || (targetIndex === 0 && ['title', 'controls', 'combined', 'game'].includes(targetView))) {
             setTotalScore(0);
+            setScoreLedger([]);
             scoreRef.current = 0;
-            scoreAtStartOfGameRef.current = 0;
         }
 
         setHasInteracted(false);
-        setResult(null); // Clear previous game results when jumping to a new state
+        setResult(null); 
         
         if (targetView === 'game') {
             setGameKey(k => k + 1); // Force reset
@@ -545,7 +556,7 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
             const isButton = !isAuto && (t.interactionMethod || 'click') === 'click' && (t.clickFormat || 'disclaimer') === 'button';
             
             executeTransition(() => {
-                setResult(null); // Double-ensure result is completely wiped before unpausing the canvas
+                setResult(null); 
                 setView('game');
             }, isAuto ? 'auto' : (isButton ? 'button' : 'disclaimer'), 'primary');
         }
@@ -610,7 +621,6 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
 
         if (typeof pointsToAdd === 'number') {
             setTotalScore(prevScore => prevScore + pointsToAdd);
-            
             // Log to the ledger for the receipt UI
             let eventLabel = eventName;
             const trackable = (flowItem as any).trackableEvents?.find((t: any) => t.eventId === eventName || t.eventId === eventName.split(':')[0]);
@@ -658,9 +668,6 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
         executeTransition(() => {
             const targetIndex = Math.max(0, gameIndexRef.current - 1);
             gameIndexRef.current = targetIndex;
-            setTotalScore(scoreAtStartOfGameRef.current); // Reset score to the snapshot
-            // Wipe ledger entries from the game we are throwing away
-            setScoreLedger(prev => prev.filter(item => item.gameIndex < targetIndex)); 
             runFlow();
         }, isAuto ? 'auto' : (isButton ? 'button' : 'disclaimer'), 'secondary');
     }, [runFlow, macrogame, executeTransition]);
@@ -668,8 +675,33 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
     const resetScore = useCallback(() => {
         setTotalScore(0);
         setScoreLedger([]);
-        scoreAtStartOfGameRef.current = 0;
         scoreRef.current = 0;
+    }, []);
+
+    // --- RESOLUTION ROUTING ---
+    const [activeFallbackScreenId, setActiveFallbackScreenId] = useState<string | null>(null);
+
+    const triggerResolutionReplay = useCallback((keepPoints: boolean, targetIndex: number = 0) => {
+        gameIndexRef.current = Math.max(0, Math.min(targetIndex, (macrogame?.flow.length || 1) - 1));
+        
+        if (!keepPoints) {
+            setTotalScore(0);
+            setScoreLedger([]);
+            scoreAtStartOfGameRef.current = 0;
+            scoreRef.current = 0;
+        } else {
+            // Snapshot current score as the new baseline so they keep their points securely
+            scoreAtStartOfGameRef.current = scoreRef.current;
+        }
+
+        // Wipe result state and restart the flow
+        setResult(null);
+        runFlow();
+    }, [macrogame, runFlow]);
+
+    const hotSwapConversionScreen = useCallback((fallbackScreenId: string) => {
+        setActiveFallbackScreenId(fallbackScreenId);
+        setView('end'); // Force the view to refresh and render the new screen
     }, []);
 
     useEffect(() => {
@@ -785,6 +817,7 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
         setScoreLedger([]);
         scoreAtStartOfGameRef.current = 0; // Ensure snapshot is reset
         setResult(null); // Clear previous game results on full restart
+        setActiveFallbackScreenId(null); // Reset branching
     
         currentTrackRef.current?.pause();
         currentTrackRef.current = null;
@@ -832,6 +865,7 @@ export const useMacroGameEngine = (macrogame?: Macrogame) => {
         currentFlowIndex: view === 'result' ? Math.max(0, gameIndexRef.current - 1) : gameIndexRef.current,
         totalGamesInFlow: macrogame?.flow.length || 0, progressText, redeemPoints,
         continueFlow, retryCurrentMicrogame, resetScore,
+        triggerResolutionReplay, hotSwapConversionScreen, activeFallbackScreenId,
         mode, setMode, jumpTo, stepForward, stepBackward,
         canStepForward, canStepBackward, gameKey
     };

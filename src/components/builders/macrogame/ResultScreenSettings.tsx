@@ -6,6 +6,7 @@ import { ResultConfig } from '../../../types';
 import { SimpleTextEditor } from '../../forms/SimpleTextEditor';
 import { ButtonConfigEditor } from '../../forms/ButtonConfigEditor';
 import { TransitionSettingsEditor } from './TransitionSettingsEditor';
+import { SmartNumberInput } from '../../ui/inputs/SmartNumberInput';
 
 interface ResultScreenSettingsProps {
     config: ResultConfig;
@@ -30,15 +31,8 @@ export const ResultScreenSettings: React.FC<ResultScreenSettingsProps> = ({
 }) => {
     const [isExpanded, setIsExpanded] = useState(true);
 
-    const handleNumberChange = (value: string): number | '' => {
-        if (value === '') return '';
-        const num = Number(value);
-        return (!isNaN(num) && num >= 0) ? num : '';
-    };
-
-    // Overlay is always a dark mask, so simulate that in the editor background
-    const editorBgColor = '#333333';
-    const editorTextColor = '#ffffff';
+    const editorBgColor = theme === 'light' ? '#ffffff' : '#333333';
+    const editorTextColor = theme === 'light' ? '#333333' : '#ffffff';
 
     return (
         <div style={{ backgroundColor: '#fff', padding: '1.5rem 2rem', borderRadius: '8px', border: '1px solid #ddd', marginBottom: '2rem', transition: 'all 0.3s' }}>
@@ -61,11 +55,43 @@ export const ResultScreenSettings: React.FC<ResultScreenSettingsProps> = ({
                         onChange={e => { 
                             const isChecked = e.target.checked;
                             onChange('enabled', isChecked);
-                            if (isChecked && (!config.format || config.format === 'skip' as any)) {
-                                onChange('format', 'overlay');
+                            if (isChecked) {
+                                if (!config.format || config.format === 'skip' as any) {
+                                    onChange('format', 'overlay');
+                                }
+                                setIsExpanded(true); 
+                                onInteract(); // Navigate immediately in the live preview
+                                
+                                // Automatically restore factory defaults if they were wiped from a previous save
+                                if (!config.winText) onChange('winText', '<h1 style="text-align: center; color: #2ecc71; text-transform: uppercase;">WIN!</h1>');
+                                if (!config.winBodyText) onChange('winBodyText', '<p style="text-align: center; font-size: 1.25rem;">Congrats, you won! Click to continue to the next stage.</p>');
+                                if (!config.lossText) onChange('lossText', '<h1 style="text-align: center; color: #e74c3c; text-transform: uppercase;">GAME OVER</h1>');
+                                if (!config.lossBodyText) onChange('lossBodyText', '<p style="text-align: center; font-size: 1.25rem;">Oh no, you lost!</p>');
+                                if (!config.tryAgainText) onChange('tryAgainText', '<h1 style="text-align: center; color: #f1c40f; text-transform: uppercase;">TRY AGAIN</h1>');
+                                if (!config.tryAgainBodyText) onChange('tryAgainBodyText', '<p style="text-align: center; font-size: 1.25rem;">You didn\'t reach the goal, but don\'t worry. You can try again!</p>');
+                                
+                                // Restore pruned transition object (Primary Button)
+                                if (!config.transition || !config.transition.buttonConfig) {
+                                    onChange('transition', {
+                                        type: 'interact',
+                                        interactionMethod: 'click',
+                                        clickFormat: 'button',
+                                        disclaimerText: 'Click anywhere to continue',
+                                        pulseAnimation: true,
+                                        buttonConfig: { text: 'Continue', borderRadius: 6, paddingVertical: 12, paddingHorizontal: 32, widthMode: 'max', customWidth: 50, strokeStyle: 'none', strokeWidth: 2 },
+                                        buttonStyle: { backgroundColor: '#ffffff', textColor: '#333333', strokeColor: '#ffffff' },
+                                        lightButtonStyle: { backgroundColor: '#333333', textColor: '#ffffff', strokeColor: '#333333' }
+                                    });
+                                }
+
+                                // Restore pruned Secondary Button
+                                if (!config.secondaryButtonConfig) {
+                                    onChange('secondaryButtonConfig', { text: 'Play Again', borderRadius: 6, paddingVertical: 12, paddingHorizontal: 32, widthMode: 'max', customWidth: 50, strokeStyle: 'solid', strokeWidth: 2 });
+                                    onChange('secondaryButtonStyle', { backgroundColor: 'transparent', textColor: '#ffffff', strokeColor: '#ffffff' });
+                                    onChange('lightSecondaryButtonStyle', { backgroundColor: 'transparent', textColor: '#333333', strokeColor: '#333333' });
+                                }
                             }
-                            if (isChecked) setIsExpanded(true); 
-                        }} 
+                        }}
                         style={{ width: '18px', height: '18px' }} 
                     />
                     Enable Screen
@@ -191,11 +217,11 @@ export const ResultScreenSettings: React.FC<ResultScreenSettingsProps> = ({
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem 1rem', marginBottom: '1.5rem' }}>
                                     <div style={styles.configItem}>
                                         <label>Between Text (px)</label>
-                                        <input 
-                                            type="number" min="0" max="120"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.textSpacing ?? 0}
-                                            onChange={e => onChange('textSpacing', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('textSpacing', 0); }}
+                                            onChange={val => onChange('textSpacing', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
@@ -203,11 +229,11 @@ export const ResultScreenSettings: React.FC<ResultScreenSettingsProps> = ({
                                     {(config.showPlayAgainOnWin || config.showPlayAgainOnLoss || config.showPlayAgainOnTryAgain) && (
                                         <div style={styles.configItem}>
                                             <label>Between Buttons (px)</label>
-                                            <input 
-                                                type="number" min="0" max="120"
+                                            <SmartNumberInput 
+                                                min={0} max={120}
+                                                fallbackValue={0}
                                                 value={config.buttonSpacing ?? 0}
-                                                onChange={e => onChange('buttonSpacing', handleNumberChange(e.target.value))}
-                                                onBlur={(e) => { if (e.target.value === '') onChange('buttonSpacing', 0); }}
+                                                onChange={val => onChange('buttonSpacing', Math.min(120, Math.max(0, val)))}
                                                 style={styles.input}
                                             />
                                         </div>
@@ -215,11 +241,11 @@ export const ResultScreenSettings: React.FC<ResultScreenSettingsProps> = ({
 
                                     <div style={styles.configItem}>
                                         <label>Between Groups (px)</label>
-                                        <input 
-                                            type="number" min="0" max="120"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.blockSpacing ?? 0}
-                                            onChange={e => onChange('blockSpacing', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('blockSpacing', 0); }}
+                                            onChange={val => onChange('blockSpacing', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
@@ -228,41 +254,41 @@ export const ResultScreenSettings: React.FC<ResultScreenSettingsProps> = ({
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem 1rem', borderTop: '1px dashed #ccc', paddingTop: '1.5rem' }}>
                                     <div style={styles.configItem}>
                                         <label>Padding Top (px)</label>
-                                        <input 
-                                            type="number" min="0" max="200"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.paddingTop ?? 0}
-                                            onChange={e => onChange('paddingTop', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('paddingTop', 0); }}
+                                            onChange={val => onChange('paddingTop', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
                                     <div style={styles.configItem}>
                                         <label>Padding Bottom (px)</label>
-                                        <input 
-                                            type="number" min="0" max="200"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.paddingBottom ?? 0}
-                                            onChange={e => onChange('paddingBottom', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('paddingBottom', 0); }}
+                                            onChange={val => onChange('paddingBottom', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
                                     <div style={styles.configItem}>
                                         <label>Padding Left (px)</label>
-                                        <input 
-                                            type="number" min="0" max="200"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.paddingLeft ?? 0}
-                                            onChange={e => onChange('paddingLeft', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('paddingLeft', 0); }}
+                                            onChange={val => onChange('paddingLeft', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
                                     <div style={styles.configItem}>
                                         <label>Padding Right (px)</label>
-                                        <input 
-                                            type="number" min="0" max="200"
+                                        <SmartNumberInput 
+                                            min={0} max={120}
+                                            fallbackValue={0}
                                             value={config.paddingRight ?? 0}
-                                            onChange={e => onChange('paddingRight', handleNumberChange(e.target.value))}
-                                            onBlur={(e) => { if (e.target.value === '') onChange('paddingRight', 0); }}
+                                            onChange={val => onChange('paddingRight', Math.min(120, Math.max(0, val)))}
                                             style={styles.input}
                                         />
                                     </div>
@@ -308,10 +334,11 @@ export const ResultScreenSettings: React.FC<ResultScreenSettingsProps> = ({
                                 
                                 <ButtonConfigEditor 
                                     title="Secondary Action (Play Again)"
-                                    config={config.secondaryButtonConfig!}
-                                    darkTheme={config.secondaryButtonStyle!}
-                                    lightTheme={config.lightSecondaryButtonStyle!}
+                                    config={config.secondaryButtonConfig || { text: 'Play Again', borderRadius: 6, paddingVertical: 12, paddingHorizontal: 32, widthMode: 'max', customWidth: 50, strokeStyle: 'solid', strokeWidth: 2 }}
+                                    darkTheme={config.secondaryButtonStyle || { backgroundColor: 'transparent', textColor: '#ffffff', strokeColor: '#ffffff' }}
+                                    lightTheme={config.lightSecondaryButtonStyle || { backgroundColor: 'transparent', textColor: '#333333', strokeColor: '#333333' }}
                                     defaultText="Play Again"
+                                    allowTransparentBg={true}
                                     onChangeConfig={(key, value) => onStyleChange('secondaryButtonConfig', key, value)}
                                     onChangeTheme={(mode, key, value) => {
                                         const themeKey = mode === 'dark' ? 'secondaryButtonStyle' : 'lightSecondaryButtonStyle';

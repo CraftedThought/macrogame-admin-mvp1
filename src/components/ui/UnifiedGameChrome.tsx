@@ -23,6 +23,8 @@ export interface UnifiedGameChromeProps {
         hudPaddingX?: number;
     };
     totalScore: number;
+    targetScore?: number;          // --- Upstream Visibility ---
+    targetRewardName?: string;     // --- Upstream Visibility ---
     progressText: string;
     currentStep?: number;
     totalSteps?: number;
@@ -42,6 +44,7 @@ export interface UnifiedGameChromeProps {
 
     // Overlay Configuration
     isOverlayVisible?: boolean;
+    previewGateStateOverride?: 'locked' | 'unlocked';
     onStart?: () => void;
     overlayTitle?: string;
     overlayControls?: string;
@@ -78,6 +81,8 @@ export const UnifiedGameChrome: React.FC<UnifiedGameChromeProps> = ({
     theme = 'dark',
     macroConfig = { showPoints: false, showProgress: false },
     totalScore,
+    targetScore,
+    targetRewardName,
     progressText,
     currentStep,
     totalSteps,
@@ -89,6 +94,7 @@ export const UnifiedGameChrome: React.FC<UnifiedGameChromeProps> = ({
     goalTarget,
     goalLabel,
     isOverlayVisible = false,
+    previewGateStateOverride,
     onStart,
     overlayTitle,
     overlayControls,
@@ -227,14 +233,24 @@ export const UnifiedGameChrome: React.FC<UnifiedGameChromeProps> = ({
             // 1.5x sized node for the final reward
             const finalNodeSize = isReward ? (isActive ? '42px' : '34px') : (isActive ? '16px' : '12px');
 
+            // Intelligently drop the lock icon if the user forces "Unlock All" in the previewer
+            const isPointLocked = previewGateStateOverride === 'unlocked' ? false : (targetScore && targetScore > 0 && totalScore < targetScore);
+
             const nodeContent = isReward ? (
-                <svg width={isActive ? "24" : "20"} height={isActive ? "24" : "20"} viewBox="0 0 24 24" fill="none" stroke={isActive ? "#fff" : (isLight ? "#666" : "rgba(255,255,255,0.7)")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'stroke 0.3s ease' }}>
-                    <polyline points="20 12 20 22 4 22 4 12"></polyline>
-                    <rect x="2" y="7" width="20" height="5"></rect>
-                    <line x1="12" y1="22" x2="12" y2="7"></line>
-                    <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path>
-                    <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path>
-                </svg>
+                isPointLocked ? (
+                    <svg width={isActive ? "20" : "16"} height={isActive ? "20" : "16"} viewBox="0 0 24 24" fill="none" stroke={isActive ? "#fff" : (isLight ? "#666" : "rgba(255,255,255,0.7)")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'stroke 0.3s ease' }}>
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                    </svg>
+                ) : (
+                    <svg width={isActive ? "24" : "20"} height={isActive ? "24" : "20"} viewBox="0 0 24 24" fill="none" stroke={isActive ? "#fff" : (isLight ? "#666" : "rgba(255,255,255,0.7)")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'stroke 0.3s ease' }}>
+                        <polyline points="20 12 20 22 4 22 4 12"></polyline>
+                        <rect x="2" y="7" width="20" height="5"></rect>
+                        <line x1="12" y1="22" x2="12" y2="7"></line>
+                        <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path>
+                        <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path>
+                    </svg>
+                )
             ) : null;
 
             nodes.push(
@@ -265,7 +281,7 @@ export const UnifiedGameChrome: React.FC<UnifiedGameChromeProps> = ({
                             fontSize: '0.7rem',
                             fontFamily: 'inherit',
                             fontWeight: isActive ? 'bold' : 'normal',
-                            color: isActive || isCompleted ? activeTextColor : inactiveTextColor,
+                            color: isActive ? activeTextColor : inactiveTextColor,
                             whiteSpace: 'nowrap',
                             textAlign: 'center',
                             textShadow: isLight ? 'none' : '1px 1px 2px rgba(0,0,0,0.8)'
@@ -307,7 +323,7 @@ export const UnifiedGameChrome: React.FC<UnifiedGameChromeProps> = ({
                 zIndex: 1000 // Boosted to pierce through Pre-Game backgrounds
             }}>
                 <div style={{ fontSize: '1.2em', fontWeight: 'bold', color: textColor, textShadow, flex: 1, display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start' }}>
-                    {macroConfig.showPoints ? `Points: ${totalScore}` : ''}
+                    {macroConfig.showPoints ? (targetScore && targetScore > 0 ? `Points: ${totalScore} / ${targetScore}` : `Points: ${totalScore}`) : ''}
                 </div>
                 
                 {/* Enforce flex-start so adding text below the nodes pushes down, not up */}
@@ -397,6 +413,8 @@ export const UnifiedGameChrome: React.FC<UnifiedGameChromeProps> = ({
                     isActive={isActive}
                     hasProgressTracker={macroConfig.showProgress}
                     hasProgressLabels={macroConfig.progressShowLabels}
+                    targetScore={targetScore}
+                    targetRewardName={targetRewardName}
                 />
             )}
         </div>

@@ -26,6 +26,12 @@ interface ConversionMethodFormFieldsProps {
     hideSocialConfiguration?: boolean;
     hideContentSection?: boolean;
     hideInternalName?: boolean;
+    hideDestinationConfiguration?: boolean;
+    previewIsPlaying?: boolean;
+    hasStartedPlaying?: boolean;
+    onTogglePlay?: () => void;
+    onResetPreview?: () => void;
+    onResetReveal?: () => void;
 }
 
 // Helper: Simple Color Picker for this form
@@ -96,6 +102,11 @@ export const ConversionMethodFormFields: React.FC<ConversionMethodFormFieldsProp
     hideSocialConfiguration = false,
     hideContentSection = false,
     hideInternalName = false,
+    hideDestinationConfiguration = false,
+    previewIsPlaying = false,
+    hasStartedPlaying = false,
+    onTogglePlay,
+    onResetPreview,
 }) => {
     const getFieldName = (name: string) => prefix ? `${prefix}.${name}` : name;
     const selectedType = watch(getFieldName('type'));
@@ -147,6 +158,11 @@ export const ConversionMethodFormFields: React.FC<ConversionMethodFormFieldsProp
             {selectedType === 'link_redirect' && (
                 <LinkRedirectConfig 
                     control={control} register={register} watch={watch} setValue={setValue} getValues={getValues} prefix={prefix} onRefreshPreview={onRefreshPreview} 
+                    hideDestinationConfiguration={hideDestinationConfiguration}
+                    previewIsPlaying={previewIsPlaying}
+                    hasStartedPlaying={hasStartedPlaying}
+                    onTogglePlay={onTogglePlay}
+                    onResetPreview={onResetPreview}
                 />
             )}
 
@@ -572,6 +588,7 @@ export const ConversionMethodFormFields: React.FC<ConversionMethodFormFieldsProp
                                                             // 1. Text & Icon Defaults
                                                             setValue(getFieldName("maskConfig.headline"), "Click to Reveal the Coupon Code");
                                                             setValue(getFieldName("maskConfig.showIcon"), true);
+                                                            setValue(getFieldName("maskConfig.codeHeadline"), "REVEAL");
                                                             
                                                             // 2. Color Defaults based on Scope
                                                             // We must read the current scope value to decide
@@ -597,8 +614,23 @@ export const ConversionMethodFormFields: React.FC<ConversionMethodFormFieldsProp
                                             />
                                             <span style={{ fontWeight: 'bold' }}>Enable Click to Reveal</span>
                                         </label>
-                                        <button type="button" onClick={onRefreshPreview} title="Reset Preview State" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                                        <button 
+                                            type="button" 
+                                            onClick={onResetReveal || onRefreshPreview} 
+                                            title="Reset Preview to test reveal"
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                color: '#0866ff',
+                                                fontSize: '0.85rem',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '0.25rem',
+                                                padding: 0
+                                            }}
+                                        >
+                                            <span style={{ fontSize: '1.1rem' }}>↻</span> Reset Reveal
                                         </button>
                                     </div>
                                     {watch(getFieldName("clickToReveal")) && (
@@ -617,6 +649,8 @@ export const ConversionMethodFormFields: React.FC<ConversionMethodFormFieldsProp
                                                                     
                                                                     setValue(getFieldName("maskConfig.lightStyle.backgroundColor"), "#1a1a1a");
                                                                     setValue(getFieldName("maskConfig.lightStyle.textColor"), "#ffffff");
+                                                                    // Inject Short Headline into the correct variable
+                                                                    setValue(getFieldName("maskConfig.codeHeadline"), "REVEAL");
                                                                 } else {
                                                                     // Full Reveal Defaults
                                                                     
@@ -642,6 +676,7 @@ export const ConversionMethodFormFields: React.FC<ConversionMethodFormFieldsProp
                                             <MaskConfigurationForm 
                                                 register={register}
                                                 control={control}
+                                                setValue={setValue}
                                                 prefix={getFieldName("maskConfig")}
                                                 defaultHeadline="Click to Reveal the Coupon Code"
                                                 isCodeOnlyScope={revealScope === 'code_only'}

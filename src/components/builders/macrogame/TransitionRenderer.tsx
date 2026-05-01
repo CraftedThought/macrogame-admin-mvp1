@@ -8,25 +8,28 @@ export const LiveCountdown: React.FC<{ template: string; duration: number; isAct
     const [timeLeft, setTimeLeft] = useState(duration);
     const hasCompletedRef = useRef(false);
 
+    // 1. Reset timer when duration changes
     useEffect(() => { 
         setTimeLeft(duration); 
         hasCompletedRef.current = false; 
     }, [duration]);
 
+    // 2. Pure state update (No side-effects allowed inside setTimeLeft)
     useEffect(() => {
         if (!isActive || timeLeft <= 0) return;
         const timer = setInterval(() => {
-            setTimeLeft(t => {
-                const next = Math.max(0, t - 1);
-                if (next === 0 && !hasCompletedRef.current) {
-                    hasCompletedRef.current = true;
-                    if (onComplete) onComplete();
-                }
-                return next;
-            });
+            setTimeLeft(t => Math.max(0, t - 1));
         }, 1000);
         return () => clearInterval(timer);
-    }, [isActive, timeLeft, onComplete]);
+    }, [isActive, timeLeft]);
+
+    // 3. Safe side-effect execution triggered when timeLeft hits 0
+    useEffect(() => {
+        if (timeLeft === 0 && isActive && !hasCompletedRef.current) {
+            hasCompletedRef.current = true;
+            if (onComplete) onComplete();
+        }
+    }, [timeLeft, isActive, onComplete]);
 
     return <>{template.replace(/\{\{time\}\}/g, String(timeLeft))}</>;
 };

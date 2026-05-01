@@ -11,6 +11,7 @@ interface ButtonConfigEditorProps {
     darkTheme: ButtonThemeStyle;
     lightTheme: ButtonThemeStyle;
     defaultText?: string;
+    allowTransparentBg?: boolean;
     onChangeConfig: (key: keyof ButtonStructureConfig, value: any) => void;
     onChangeTheme: (mode: 'dark' | 'light', key: keyof ButtonThemeStyle, value: any) => void;
 }
@@ -21,6 +22,7 @@ export const ButtonConfigEditor: React.FC<ButtonConfigEditorProps> = ({
     darkTheme,
     lightTheme,
     defaultText,
+    allowTransparentBg = false,
     onChangeConfig,
     onChangeTheme
 }) => {
@@ -43,8 +45,9 @@ export const ButtonConfigEditor: React.FC<ButtonConfigEditorProps> = ({
                     <label>Border Radius (px)</label>
                     <SmartNumberInput 
                         min={0} max={100}
+                        fallbackValue={6}
                         value={config.borderRadius ?? 6} 
-                        onChange={val => onChangeConfig('borderRadius', val)} 
+                        onChange={val => onChangeConfig('borderRadius', Math.min(100, Math.max(0, val)))} 
                         style={styles.input} 
                     />
                 </div>
@@ -52,8 +55,9 @@ export const ButtonConfigEditor: React.FC<ButtonConfigEditorProps> = ({
                     <label>Vertical Padding (px)</label>
                     <SmartNumberInput 
                         min={0} max={60}
+                        fallbackValue={0}
                         value={config.paddingVertical ?? 0} 
-                        onChange={val => onChangeConfig('paddingVertical', val)} 
+                        onChange={val => onChangeConfig('paddingVertical', Math.min(60, Math.max(0, val)))} 
                         style={styles.input} 
                     />
                 </div>
@@ -61,8 +65,9 @@ export const ButtonConfigEditor: React.FC<ButtonConfigEditorProps> = ({
                     <label>Horizontal Padding (px)</label>
                     <SmartNumberInput 
                         min={0} max={100}
+                        fallbackValue={0}
                         value={config.paddingHorizontal ?? 0} 
-                        onChange={val => onChangeConfig('paddingHorizontal', val)} 
+                        onChange={val => onChangeConfig('paddingHorizontal', Math.min(100, Math.max(0, val)))} 
                         style={{ ...styles.input, opacity: (config.widthMode === 'max' || config.widthMode === 'custom') ? 0.5 : 1 }}
                         disabled={config.widthMode === 'max' || config.widthMode === 'custom'}
                     />
@@ -88,8 +93,9 @@ export const ButtonConfigEditor: React.FC<ButtonConfigEditorProps> = ({
                         <label>Stroke Width (px)</label>
                         <SmartNumberInput 
                             min={0} max={20}
+                            fallbackValue={0}
                             value={config.strokeWidth ?? 0} 
-                            onChange={val => onChangeConfig('strokeWidth', val)} 
+                            onChange={val => onChangeConfig('strokeWidth', Math.min(20, Math.max(0, val)))} 
                             style={styles.input}
                         />
                     </div>
@@ -174,6 +180,25 @@ export const ButtonConfigEditor: React.FC<ButtonConfigEditorProps> = ({
                                         style={{ ...styles.input, flex: 1, fontSize: '0.85rem', padding: '0.3rem' }}
                                         placeholder={defaultBg}
                                     />
+                                    {allowTransparentBg && (
+                                        <button 
+                                            type="button"
+                                            title="Set to Transparent"
+                                            onClick={() => onChangeTheme(mode, 'backgroundColor', 'transparent')}
+                                            style={{ 
+                                                border: activeStyle.backgroundColor === 'transparent' ? '1px solid #0866ff' : '1px solid #ccc',
+                                                borderRadius: '4px',
+                                                padding: '0.3rem 0.5rem', fontSize: '0.75rem', cursor: 'pointer',
+                                                color: activeStyle.backgroundColor === 'transparent' ? '#ffffff' : '#666666', 
+                                                backgroundColor: activeStyle.backgroundColor === 'transparent' ? '#0866ff' : '#f9f9f9', 
+                                                whiteSpace: 'nowrap',
+                                                fontWeight: activeStyle.backgroundColor === 'transparent' ? 'bold' : 'normal',
+                                                transition: 'all 0.2s ease-in-out'
+                                            }}
+                                        >
+                                            ⊘ Transparent
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             <div style={{ ...styles.configItem, flex: 1 }}>

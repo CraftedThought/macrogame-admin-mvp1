@@ -5,6 +5,7 @@ import { styles } from '../../../App.styles';
 import { ScreenConfig } from '../../../types';
 import { SimpleTextEditor } from '../../forms/SimpleTextEditor';
 import { TransitionSettingsEditor } from './TransitionSettingsEditor';
+import { SmartNumberInput } from '../../ui/inputs/SmartNumberInput';
 
 interface ScreenCanvasBuilderProps {
     title: string;
@@ -48,12 +49,6 @@ export const ScreenCanvasBuilder: React.FC<ScreenCanvasBuilderProps> = ({
     // Independent counters to safely reset file inputs ONLY on removal
     const [fileInputKeys, setFileInputKeys] = useState({ bg: 0, spot: 0 });
 
-    const handleNumberChange = (value: string): number | '' => {
-        if (value === '') return '';
-        const num = parseInt(value, 10);
-        return isNaN(num) ? '' : Math.max(0, num);
-    };
-
     // Dynamically pull the exact colors selected for the active mode, falling back to defaults
     const activeStyle = theme === 'light' ? (config.lightStyle || {}) : (config.style || {});
     const editorBgColor = activeStyle.backgroundColor || (theme === 'light' ? '#ffffff' : '#1a1a2e');
@@ -80,9 +75,32 @@ export const ScreenCanvasBuilder: React.FC<ScreenCanvasBuilderProps> = ({
                         onChange={e => { 
                             const isChecked = e.target.checked;
                             onChange('enabled', isChecked); 
-                            // Auto-expand when they enable the screen
-                            if (isChecked) setIsExpanded(true); 
-                        }} 
+                            if (isChecked) {
+                                setIsExpanded(true);
+                                // Automatically restore factory defaults if they were wiped from a previous save
+                                if (!config.headline) {
+                                    onChange('headline', type === 'intro' ? '<h1 style="text-align: center;">GET READY!</h1>' : '<h1 style="text-align: center;">Special Promotion!</h1>');
+                                    setShowHeadline(true);
+                                }
+                                if (!config.bodyText) {
+                                    onChange('bodyText', type === 'intro' ? '<p style="text-align: center; font-size: 1.25rem;">Play a 10 second minigame for a chance to win a special reward!</p>' : '<p style="text-align: center; font-size: 1.25rem;">Check out this special offer just for you. Submit the required information on the next screen to get your reward!</p>');
+                                    setShowBodyText(true);
+                                }
+
+                                // Restore pruned transition object
+                                if (!config.transition || !config.transition.buttonConfig) {
+                                    onChange('transition', {
+                                        type: 'interact',
+                                        interactionMethod: 'click',
+                                        clickFormat: 'button',
+                                        disclaimerText: 'Click anywhere to continue',
+                                        buttonConfig: { text: type === 'intro' ? 'Start' : 'Continue', borderRadius: 6, paddingVertical: 12, paddingHorizontal: 32, widthMode: 'max', customWidth: 50, strokeStyle: 'none', strokeWidth: 2 },
+                                        buttonStyle: { backgroundColor: '#0866ff', textColor: '#ffffff', strokeColor: '#0866ff' },
+                                        lightButtonStyle: { backgroundColor: '#0866ff', textColor: '#ffffff', strokeColor: '#0866ff' }
+                                    });
+                                }
+                            }
+                        }}
                         style={{ width: '18px', height: '18px' }} 
                     />
                     Enable Screen
@@ -206,21 +224,21 @@ export const ScreenCanvasBuilder: React.FC<ScreenCanvasBuilderProps> = ({
                                 </div>
                                 <div style={{ ...styles.configItem, flex: 1 }}>
                                     <label>Between Text (px)</label>
-                                    <input 
-                                        type="number" min="0" max="120"
-                                        value={config.style.spacing ?? ''}
-                                        onChange={e => onStyleChange('style', 'spacing', handleNumberChange(e.target.value))}
-                                        onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'spacing', 0); }}
+                                    <SmartNumberInput 
+                                        min={0} max={120}
+                                        fallbackValue={0}
+                                        value={config.style.spacing ?? 0}
+                                        onChange={val => onStyleChange('style', 'spacing', Math.min(120, Math.max(0, val)))}
                                         style={styles.input}
                                     />
                                 </div>
                                 <div style={{ ...styles.configItem, flex: 1 }}>
                                     <label>Between Groups (px)</label>
-                                    <input 
-                                        type="number" min="0" max="120"
-                                        value={config.style.blockSpacing ?? ''}
-                                        onChange={e => onStyleChange('style', 'blockSpacing', handleNumberChange(e.target.value))}
-                                        onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'blockSpacing', 0); }}
+                                    <SmartNumberInput 
+                                        min={0} max={120}
+                                        fallbackValue={0}
+                                        value={config.style.blockSpacing ?? 0}
+                                        onChange={val => onStyleChange('style', 'blockSpacing', Math.min(120, Math.max(0, val)))}
                                         style={styles.input}
                                     />
                                 </div>
@@ -229,41 +247,41 @@ export const ScreenCanvasBuilder: React.FC<ScreenCanvasBuilderProps> = ({
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                                 <div style={styles.configItem}>
                                     <label>Padding Top (px)</label>
-                                    <input 
-                                        type="number" min="0" max="120"
-                                        value={config.style?.textPaddingTop ?? ''}
-                                        onChange={e => onStyleChange('style', 'textPaddingTop', handleNumberChange(e.target.value))}
-                                        onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'textPaddingTop', 0); }}
+                                    <SmartNumberInput 
+                                        min={0} max={120}
+                                        fallbackValue={0}
+                                        value={config.style?.textPaddingTop ?? 0}
+                                        onChange={val => onStyleChange('style', 'textPaddingTop', Math.min(120, Math.max(0, val)))}
                                         style={styles.input}
                                     />
                                 </div>
                                 <div style={styles.configItem}>
                                     <label>Padding Bottom (px)</label>
-                                    <input 
-                                        type="number" min="0" max="120"
-                                        value={config.style?.textPaddingBottom ?? ''}
-                                        onChange={e => onStyleChange('style', 'textPaddingBottom', handleNumberChange(e.target.value))}
-                                        onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'textPaddingBottom', 0); }}
+                                    <SmartNumberInput 
+                                        min={0} max={120}
+                                        fallbackValue={0}
+                                        value={config.style?.textPaddingBottom ?? 0}
+                                        onChange={val => onStyleChange('style', 'textPaddingBottom', Math.min(120, Math.max(0, val)))}
                                         style={styles.input}
                                     />
                                 </div>
                                 <div style={styles.configItem}>
                                     <label>Padding Left (px)</label>
-                                    <input 
-                                        type="number" min="0" max="120"
-                                        value={config.style?.textPaddingLeft ?? ''}
-                                        onChange={e => onStyleChange('style', 'textPaddingLeft', handleNumberChange(e.target.value))}
-                                        onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'textPaddingLeft', 0); }}
+                                    <SmartNumberInput 
+                                        min={0} max={120}
+                                        fallbackValue={0}
+                                        value={config.style?.textPaddingLeft ?? 0}
+                                        onChange={val => onStyleChange('style', 'textPaddingLeft', Math.min(120, Math.max(0, val)))}
                                         style={styles.input}
                                     />
                                 </div>
                                 <div style={styles.configItem}>
                                     <label>Padding Right (px)</label>
-                                    <input 
-                                        type="number" min="0" max="120"
-                                        value={config.style?.textPaddingRight ?? ''}
-                                        onChange={e => onStyleChange('style', 'textPaddingRight', handleNumberChange(e.target.value))}
-                                        onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'textPaddingRight', 0); }}
+                                    <SmartNumberInput 
+                                        min={0} max={120}
+                                        fallbackValue={0}
+                                        value={config.style?.textPaddingRight ?? 0}
+                                        onChange={val => onStyleChange('style', 'textPaddingRight', Math.min(120, Math.max(0, val)))}
                                         style={styles.input}
                                     />
                                 </div>
@@ -491,22 +509,22 @@ export const ScreenCanvasBuilder: React.FC<ScreenCanvasBuilderProps> = ({
                                         <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
                                             <div style={{ ...styles.configItem, flex: 1 }}>
                                                 <label>Content Gap (px)</label>
-                                                <input 
-                                                    type="number" min="0" max="120"
-                                                    value={config.style.contentGap ?? ''}
-                                                    onChange={e => onStyleChange('style', 'contentGap', handleNumberChange(e.target.value))}
-                                                    onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'contentGap', 0); }}
+                                                <SmartNumberInput 
+                                                    min={0} max={120}
+                                                    fallbackValue={0}
+                                                    value={config.style.contentGap ?? 0}
+                                                    onChange={val => onStyleChange('style', 'contentGap', Math.min(120, Math.max(0, val)))}
                                                     style={styles.input}
                                                 />
                                             </div>
                                             
                                             <div style={{ ...styles.configItem, flex: 1 }}>
                                                 <label>Border Radius (px)</label>
-                                                <input 
-                                                    type="number" min="0" max="60"
-                                                    value={config.style.spotlightBorderRadius ?? ''}
-                                                    onChange={e => onStyleChange('style', 'spotlightBorderRadius', handleNumberChange(e.target.value))}
-                                                    onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'spotlightBorderRadius', 0); }}
+                                                <SmartNumberInput 
+                                                    min={0} max={60}
+                                                    fallbackValue={0}
+                                                    value={config.style.spotlightBorderRadius ?? 0}
+                                                    onChange={val => onStyleChange('style', 'spotlightBorderRadius', Math.min(60, Math.max(0, val)))}
                                                     style={styles.input}
                                                 />
                                             </div>
@@ -515,41 +533,41 @@ export const ScreenCanvasBuilder: React.FC<ScreenCanvasBuilderProps> = ({
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                                             <div style={styles.configItem}>
                                                 <label>Padding Top (px)</label>
-                                                <input 
-                                                    type="number" min="0" max="120"
-                                                    value={config.style?.spotlightPaddingTop ?? ''}
-                                                    onChange={e => onStyleChange('style', 'spotlightPaddingTop', handleNumberChange(e.target.value))}
-                                                    onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'spotlightPaddingTop', 0); }}
+                                                <SmartNumberInput 
+                                                    min={0} max={120}
+                                                    fallbackValue={0}
+                                                    value={config.style?.spotlightPaddingTop ?? 0}
+                                                    onChange={val => onStyleChange('style', 'spotlightPaddingTop', Math.min(120, Math.max(0, val)))}
                                                     style={styles.input}
                                                 />
                                             </div>
                                             <div style={styles.configItem}>
                                                 <label>Padding Bottom (px)</label>
-                                                <input 
-                                                    type="number" min="0" max="120"
-                                                    value={config.style?.spotlightPaddingBottom ?? ''}
-                                                    onChange={e => onStyleChange('style', 'spotlightPaddingBottom', handleNumberChange(e.target.value))}
-                                                    onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'spotlightPaddingBottom', 0); }}
+                                                <SmartNumberInput 
+                                                    min={0} max={120}
+                                                    fallbackValue={0}
+                                                    value={config.style?.spotlightPaddingBottom ?? 0}
+                                                    onChange={val => onStyleChange('style', 'spotlightPaddingBottom', Math.min(120, Math.max(0, val)))}
                                                     style={styles.input}
                                                 />
                                             </div>
                                             <div style={styles.configItem}>
                                                 <label>Padding Left (px)</label>
-                                                <input 
-                                                    type="number" min="0" max="120"
-                                                    value={config.style?.spotlightPaddingLeft ?? ''}
-                                                    onChange={e => onStyleChange('style', 'spotlightPaddingLeft', handleNumberChange(e.target.value))}
-                                                    onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'spotlightPaddingLeft', 0); }}
+                                                <SmartNumberInput 
+                                                    min={0} max={120}
+                                                    fallbackValue={0}
+                                                    value={config.style?.spotlightPaddingLeft ?? 0}
+                                                    onChange={val => onStyleChange('style', 'spotlightPaddingLeft', Math.min(120, Math.max(0, val)))}
                                                     style={styles.input}
                                                 />
                                             </div>
                                             <div style={styles.configItem}>
                                                 <label>Padding Right (px)</label>
-                                                <input 
-                                                    type="number" min="0" max="120"
-                                                    value={config.style?.spotlightPaddingRight ?? ''}
-                                                    onChange={e => onStyleChange('style', 'spotlightPaddingRight', handleNumberChange(e.target.value))}
-                                                    onBlur={(e) => { if (e.target.value === '') onStyleChange('style', 'spotlightPaddingRight', 0); }}
+                                                <SmartNumberInput 
+                                                    min={0} max={120}
+                                                    fallbackValue={0}
+                                                    value={config.style?.spotlightPaddingRight ?? 0}
+                                                    onChange={val => onStyleChange('style', 'spotlightPaddingRight', Math.min(120, Math.max(0, val)))}
                                                     style={styles.input}
                                                 />
                                             </div>

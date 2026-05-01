@@ -24,7 +24,7 @@ export const CouponDisplay: React.FC<CouponDisplayProps> = ({
     themeMode = 'dark'
 }) => {
   // --- Styles ---
-  const activeStyle = themeMode === 'light' && method.lightStyle ? method.lightStyle : method.style;
+  const activeStyle = themeMode === 'light' ? { ...method.style, ...(method.lightStyle || {}) } : method.style;
 
   const safeVal = (val: any, fallback: number) => {
       const num = Number(val);
@@ -120,8 +120,8 @@ export const CouponDisplay: React.FC<CouponDisplayProps> = ({
                         ...maskConfig,
                         // Override padding/spacing for the tight code area
                         paddingTop: 0, paddingBottom: 0, paddingX: 0, spacing: 5,
-                        // Force specific content for the small code-only mask
-                        headline: 'REVEAL', 
+                        // Force specific content for the small code-only mask using the new separated field
+                        headline: ((maskConfig as any).codeHeadline || 'REVEAL').toUpperCase(), 
                         showIcon: false,
                         body: '' 
                     }}

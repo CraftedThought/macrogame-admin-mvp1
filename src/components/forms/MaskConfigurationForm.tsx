@@ -33,6 +33,7 @@ interface MaskConfigFormProps {
     defaultHeadline?: string;
     isCodeOnlyScope?: boolean;
     maskType?: 'default' | 'point_purchase' | 'point_threshold' | 'on_success';
+    setValue?: any; // Added to handle onBlur repopulation
 }
 
 export const MaskConfigurationForm: React.FC<MaskConfigFormProps> = ({ 
@@ -41,79 +42,143 @@ export const MaskConfigurationForm: React.FC<MaskConfigFormProps> = ({
     prefix, 
     defaultHeadline = "LOCKED", 
     isCodeOnlyScope = false,
-    maskType = 'default'
+    maskType = 'default',
+    setValue
 }) => {
     
     // Helper to get full path
     const p = (field: string) => `${prefix}.${field}`;
+    const currentStrokeStyle = useWatch({ control, name: p('strokeStyle') }) || 'none';
+
+    // Dynamic Header based on Type
+    let headerText = "Mask Configuration";
+    if (maskType === 'point_threshold') headerText = "Point Threshold Mask Configuration";
+    if (maskType === 'point_purchase') headerText = "Point Purchase Mask Configuration";
+    if (maskType === 'on_success') headerText = "Locked Prerequisite Mask Configuration";
 
     return (
         <div style={{ backgroundColor: '#f9f9f9', padding: '1.5rem', borderRadius: '8px', border: '1px solid #eee' }}>
-            <h5 style={{ ...styles.h4, marginTop: 0, marginBottom: '1rem', fontSize: '1rem', borderBottom: '1px solid #ddd', paddingBottom: '0.5rem' }}>Mask Styling & Content</h5>
+            <h5 style={{ ...styles.h4, marginTop: 0, marginBottom: '1rem', fontSize: '1rem', borderBottom: '1px solid #ddd', paddingBottom: '0.5rem' }}>
+                {headerText}
+            </h5>
 
             {/* 1. Global Visuals Row */}
             {!isCodeOnlyScope && (
                 <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                    {/* Animation selection removed (Defaulting to Fade internally) */}
                     <div style={{ flex: 1 }}>
                         <label style={{ fontSize: '0.85rem' }}>Stroke Style</label>
                         <select {...register(p('strokeStyle'))} style={styles.input}>
+                            <option value="none">None</option>
                             <option value="solid">Solid</option>
                             <option value="dashed">Dashed</option>
                             <option value="dotted">Dotted</option>
-                            <option value="none">None</option>
                         </select>
                     </div>
-                    <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: '0.85rem' }}>Stroke Width (px)</label>
-                        <Controller
-                            name={p('strokeWidth')}
-                            control={control}
-                            render={({ field }) => (
-                                <SmartNumberInput 
-                                    min={0} max={20}
-                                    value={field.value ?? 0}
-                                    fallbackValue={0}
-                                    onChange={val => {
-                                        if (val > 20) val = 20;
-                                        if (val < 0) val = 0;
-                                        field.onChange(val);
-                                    }}
-                                    style={styles.input} 
-                                />
-                            )}
+                    
+                    {/* Conditionally Render Stroke Width */}
+                    {currentStrokeStyle !== 'none' && (
+                        <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '0.85rem' }}>Stroke Width (px)</label>
+                            <Controller
+                                name={p('strokeWidth')}
+                                control={control}
+                                render={({ field }) => (
+                                    <SmartNumberInput 
+                                        min={0} max={20}
+                                        value={field.value ?? 0}
+                                        fallbackValue={0}
+                                        onChange={val => {
+                                            if (val > 20) val = 20;
+                                            if (val < 0) val = 0;
+                                            field.onChange(val);
+                                        }}
+                                        style={styles.input} 
+                                    />
+                                )}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* 2. Content Row */}
+            {isCodeOnlyScope ? (
+                <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#fff', borderRadius: '6px', border: '1px solid #ddd' }}>
+                    <div style={{ padding: '0.75rem', backgroundColor: '#eaf5fc', color: '#084298', borderRadius: '4px', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                        <strong>Code Only Mode:</strong> Layout is compact to fit over the code area.
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '0.85rem' }}>Mask Text (Short word recommended)</label>
+                        <input 
+                            type="text" 
+                            {...register(p('codeHeadline'), {
+                                onBlur: (e) => {
+                                    // If they clear the field and click away, repopulate it instantly
+                                    if (!e.target.value.trim() && setValue) {
+                                        setValue(p('codeHeadline'), 'REVEAL');
+                                    }
+                                }
+                            })} 
+                            placeholder="REVEAL" 
+                            style={{ ...styles.input, textTransform: 'uppercase' }} 
                         />
                     </div>
                 </div>
-            )}
-
-            {/* 2. Content Row (Hidden for Code Only) */}
-            {isCodeOnlyScope ? (
-                <div style={{ marginBottom: '1.5rem', padding: '0.75rem', backgroundColor: '#eaf5fc', color: '#084298', borderRadius: '4px', fontSize: '0.85rem' }}>
-                    <strong>Code Only Mode:</strong> The mask text is set to "REVEAL" and layout is compact to fit the small area.
-                </div>
             ) : (
-                <>
-                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-                        <div style={{ width: '60px' }}>
-                            <label style={{ fontSize: '0.85rem' }}>Icon</label>
-                            <div style={{ marginTop: '0.5rem' }}>
-                                <input type="checkbox" {...register(p('showIcon'))} style={{ transform: 'scale(1.5)' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                    
+                    {/* STANDARD / AFFORDABLE STATE */}
+                    <div style={{ padding: maskType === 'point_purchase' ? '1rem' : 0, backgroundColor: maskType === 'point_purchase' ? '#fff' : 'transparent', borderRadius: '6px', border: maskType === 'point_purchase' ? '1px solid #ddd' : 'none' }}>
+                        {maskType === 'point_purchase' && <h6 style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#27ae60', textTransform: 'uppercase' }}>Affordable State (Has Points)</h6>}
+                        
+                        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                            <div style={{ width: '60px' }}>
+                                <label style={{ fontSize: '0.85rem' }}>Icon</label>
+                                <div style={{ marginTop: '0.5rem' }}>
+                                    <input type="checkbox" {...register(p('showIcon'))} style={{ transform: 'scale(1.5)' }} />
+                                </div>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ fontSize: '0.85rem' }}>Headline Text</label>
+                                <input type="text" {...register(p('headline'))} placeholder="" style={styles.input} />
                             </div>
                         </div>
-                        <div style={{ flex: 1 }}>
-                            <label style={{ fontSize: '0.85rem' }}>Headline Text</label>
-                            <input type="text" {...register(p('headline'))} placeholder={defaultHeadline} style={styles.input} />
+                        <div>
+                            <label style={{ fontSize: '0.85rem' }}>Body Text (Optional)</label>
+                            <input type="text" {...register(p('body'))} placeholder="Brief instruction..." style={styles.input} />
                         </div>
+                        {maskType === 'point_purchase' && (
+                            <div style={{ marginTop: '1rem', borderTop: '1px dashed #eee', paddingTop: '1rem' }}>
+                                <label style={{ fontSize: '0.85rem' }}>Custom Button Text <span style={{color: '#888'}}>(Use {"{{cost}}"} to inject price)</span></label>
+                                <input type="text" {...register(p('purchaseButtonText'))} placeholder="Buy for {{cost}} Points" style={styles.input} />
+                            </div>
+                        )}
                     </div>
-                    <div style={{ marginBottom: '1.5rem' }}>
-                        <label style={{ fontSize: '0.85rem' }}>Body Text (Optional)</label>
-                        <input type="text" {...register(p('body'))} placeholder="Brief instruction..." style={styles.input} />
-                    </div>
-                </>
-            )}
 
-            
+                    {/* UNAFFORDABLE STATE (Point Purchase Only) */}
+                    {maskType === 'point_purchase' && (
+                        <div style={{ padding: '1rem', backgroundColor: '#fff', borderRadius: '6px', border: '1px solid #ddd' }}>
+                            <h6 style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#c0392b', textTransform: 'uppercase' }}>Insufficient Points State</h6>
+                            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                                <div style={{ width: '60px' }}>
+                                    <label style={{ fontSize: '0.85rem' }}>Icon</label>
+                                    <div style={{ marginTop: '0.5rem' }}>
+                                        <input type="checkbox" {...register(p('unaffordableShowIcon'))} style={{ transform: 'scale(1.5)' }} />
+                                    </div>
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '0.85rem' }}>Headline Text</label>
+                                    <input type="text" {...register(p('unaffordableHeadline'))} placeholder="Keep Playing!" style={styles.input} />
+                                </div>
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '0.85rem' }}>Body Text (Optional)</label>
+                                <input type="text" {...register(p('unaffordableBody'))} placeholder="You don't have enough points yet." style={styles.input} />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* 4. Theme Colors */}
             <div style={{ display: 'flex', gap: '2rem', borderTop: '1px dashed #ccc', paddingTop: '1rem' }}>
@@ -132,6 +197,7 @@ export const MaskConfigurationForm: React.FC<MaskConfigFormProps> = ({
                             <>
                                 <Controller name={p('style.buttonColor')} control={control} defaultValue="#1532c1" render={({ field }) => <ColorPickerField label="Button Color" value={field.value} onChange={field.onChange} />} />
                                 <Controller name={p('style.buttonTextColor')} control={control} defaultValue="#ffffff" render={({ field }) => <ColorPickerField label="Button Text" value={field.value} onChange={field.onChange} />} />
+                                <Controller name={p('style.pointLabelColor')} control={control} defaultValue="#ffffff" render={({ field }) => <ColorPickerField label="Point Label Text" value={field.value} onChange={field.onChange} />} />
                             </>
                         )}
 
@@ -139,7 +205,8 @@ export const MaskConfigurationForm: React.FC<MaskConfigFormProps> = ({
                         {maskType === 'point_threshold' && (
                             <>
                                 <Controller name={p('style.progressBarColor')} control={control} defaultValue="#f1c40f" render={({ field }) => <ColorPickerField label="Progress Fill" value={field.value} onChange={field.onChange} />} />
-                                <Controller name={p('style.progressBackgroundColor')} control={control} defaultValue="rgba(255,255,255,0.2)" render={({ field }) => <ColorPickerField label="Progress Bg" value={field.value} onChange={field.onChange} />} />
+                                <Controller name={p('style.progressBackgroundColor')} control={control} defaultValue="#333333" render={({ field }) => <ColorPickerField label="Progress Bg" value={field.value} onChange={field.onChange} />} />
+                                <Controller name={p('style.pointLabelColor')} control={control} defaultValue="#ffffff" render={({ field }) => <ColorPickerField label="Point Label Text" value={field.value} onChange={field.onChange} />} />
                             </>
                         )}
                     </div>
@@ -160,6 +227,7 @@ export const MaskConfigurationForm: React.FC<MaskConfigFormProps> = ({
                             <>
                                 <Controller name={p('lightStyle.buttonColor')} control={control} defaultValue="#1532c1" render={({ field }) => <ColorPickerField label="Button Color" value={field.value} onChange={field.onChange} />} />
                                 <Controller name={p('lightStyle.buttonTextColor')} control={control} defaultValue="#ffffff" render={({ field }) => <ColorPickerField label="Button Text" value={field.value} onChange={field.onChange} />} />
+                                <Controller name={p('lightStyle.pointLabelColor')} control={control} defaultValue="#000000" render={({ field }) => <ColorPickerField label="Point Label Text" value={field.value} onChange={field.onChange} />} />
                             </>
                         )}
 
@@ -167,7 +235,8 @@ export const MaskConfigurationForm: React.FC<MaskConfigFormProps> = ({
                         {maskType === 'point_threshold' && (
                             <>
                                 <Controller name={p('lightStyle.progressBarColor')} control={control} defaultValue="#f1c40f" render={({ field }) => <ColorPickerField label="Progress Fill" value={field.value} onChange={field.onChange} />} />
-                                <Controller name={p('lightStyle.progressBackgroundColor')} control={control} defaultValue="rgba(0,0,0,0.1)" render={({ field }) => <ColorPickerField label="Progress Bg" value={field.value} onChange={field.onChange} />} />
+                                <Controller name={p('lightStyle.progressBackgroundColor')} control={control} defaultValue="#e0e0e0" render={({ field }) => <ColorPickerField label="Progress Bg" value={field.value} onChange={field.onChange} />} />
+                                <Controller name={p('lightStyle.pointLabelColor')} control={control} defaultValue="#000000" render={({ field }) => <ColorPickerField label="Point Label Text" value={field.value} onChange={field.onChange} />} />
                             </>
                         )}
                     </div>

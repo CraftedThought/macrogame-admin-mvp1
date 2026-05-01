@@ -165,6 +165,7 @@ const LocalMacrogameList = ({
     const handlePreview = (macrogame: Macrogame) => {
       if (!macrogame) return;
       const previewConfig = { 
+          macrogame: macrogame,
           macrogameId: macrogame.id, // Use real ID
           skinId: 'barebones',
           isPreviewMode: 'full_macrogame'
@@ -389,12 +390,12 @@ const AlgoliaMacrogameList = ({
     );
   };
   
-  // --- NEW: Fixed handlePreview. It now lives here and has access to hits ---
+  // --- Fixed handlePreview. It now lives here and has access to hits ---
   const handlePreview = (macrogame: Macrogame) => {
       if (!macrogame) return;
 
       const previewConfig = { 
-          // Pass the ID, not the incomplete Algolia object
+          macrogame: macrogame,
           macrogameId: macrogame.objectID, 
           skinId: 'barebones',
           isPreviewMode: 'full_macrogame'

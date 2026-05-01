@@ -9,10 +9,12 @@ import { UnifiedGameChrome } from './components/ui/UnifiedGameChrome';
 import { microgames } from './microgames';
 import { MicrogameResultOverlay } from './components/ui/MicrogameResultOverlay';
 import { preloadMicrogames } from './microgames/preloader';
-import { preloadImages, parseGameMergeTags } from './utils/helpers';
+import { preloadImages, parseGameMergeTags, hydrateMacrogame, getEffectiveTargetCost, getTargetRewardName, getResolvedTargetInstanceId } from './utils/helpers';
+import { DEFAULT_MACROGAME_STATE } from './constants/defaultMacrogameState';
 import { ConversionScreenHost } from './components/conversions/ConversionScreenHost';
 import { TransitionRenderer } from './components/builders/macrogame/TransitionRenderer';
 import { useDebouncedResize } from './utils/helpers';
+import { quillCssBlock, CanvasScreenRenderer } from './components/previews/StaticMacrogamePreview';
 import ClassicHandheldSkin from './skins/ClassicHandheld';
 import ModernHandheldSkin from './skins/ModernHandheld';
 import TabletSkin from './skins/Tablet';
@@ -75,155 +77,142 @@ const StaticScreen: React.FC<{
     playScreenTransitionAudio?: () => void;
     playTimerTickAudio?: () => void;
     playTimerGoAudio?: () => void;
-}> = ({ view, data, activeGameData, result, handleRestart, advanceFromIntro, advanceFromPromo, advancePreGame, totalScore, pointCosts, redeemPoints, playEventAudio, playClickAudio, playScreenTransitionAudio, playTimerTickAudio, playTimerGoAudio }) => {
+    triggerResolutionReplay?: (keepPoints: boolean, targetIndex: number) => void;
+    hotSwapConversionScreen?: (fallbackScreenId: string) => void;
+    activeFallbackScreenId?: string | null;
+}> = ({ view, data, activeGameData, result, handleRestart, advanceFromIntro, advanceFromPromo, advancePreGame, totalScore, pointCosts, redeemPoints, playEventAudio, playClickAudio, playScreenTransitionAudio, playTimerTickAudio, playTimerGoAudio, triggerResolutionReplay, hotSwapConversionScreen, activeFallbackScreenId }) => {
 
-    const textStyles: React.CSSProperties = { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: 'white', textAlign: 'center', fontFamily: data.skin.fontFamily || 'sans-serif', textShadow: '2px 2px 4px rgba(0,0,0,0.6)', padding: '1.5em', boxSizing: 'border-box', backgroundSize: 'cover', backgroundPosition: 'center' };
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            let currentTransition;
+            let advanceFn;
+            
+            if (view === 'intro') {
+                currentTransition = data.macrogame.introScreen?.transition;
+                advanceFn = advanceFromIntro;
+            } else if (view === 'promo') {
+                currentTransition = data.macrogame.promoScreen?.transition;
+                advanceFn = advanceFromPromo;
+            } else if (view === 'title' || view === 'controls' || view === 'combined') {
+                currentTransition = data.macrogame.config.preGameConfig?.transition;
+                advanceFn = advancePreGame;
+            }
+
+            if (currentTransition?.type === 'interact' && currentTransition?.interactionMethod === 'any_interaction') {
+                advanceFn?.();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [view, data.macrogame, advanceFromIntro, advanceFromPromo, advancePreGame]);
+
+    const isLightMode = data.macrogame.globalStyling?.theme === 'light';
+    const textStyles: React.CSSProperties = { 
+        width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', 
+        textAlign: 'center', boxSizing: 'border-box', backgroundSize: 'cover', backgroundPosition: 'center',
+        fontFamily: data.macrogame.globalStyling?.fontFamily || 'system-ui, sans-serif', 
+        backgroundColor: isLightMode ? '#ffffff' : '#1a1a2e',
+        color: isLightMode ? '#333333' : '#ffffff',
+        textShadow: isLightMode ? 'none' : '2px 2px 4px rgba(0,0,0,0.6)',
+    };
+
+    const contentWidth = data.contentWidth ?? 100;
+    const contentHeight = data.contentHeight ?? 100;
+    
+    // Empty objects to satisfy the Renderer prop requirements without throwing visual guides in production preview
+    const globalGuideStyle: React.CSSProperties = {};
+    const structGuideStyle: React.CSSProperties = {};
+    const contentGuideStyle: React.CSSProperties = {};
 
     switch (view) {
         case 'intro': {
-            const introConfig = data.macrogame.introScreen;
-            const introStyle = { ...textStyles, ...(introConfig.backgroundImageUrl && { backgroundImage: `url("${introConfig.backgroundImageUrl}")` }), ...(introConfig.clickToContinue && { cursor: 'pointer' }) };
-            return ( <div style={introStyle} onClick={introConfig.clickToContinue ? advanceFromIntro : undefined}> <h1 style={{ fontSize: '2.8em' }}>{introConfig.text}</h1> {introConfig.clickToContinue && ( <p style={{ marginTop: '1.5em', fontSize: '1.4em', background: 'rgba(0,0,0,0.7)', padding: '0.5em 0.8em', borderRadius: '5px' }}> Click to continue </p> )} </div> );
+            return (
+                <CanvasScreenRenderer 
+                    config={{ ...data.macrogame.introScreen, hasProgressTracker: data.macrogame.config.showProgress, hasProgressLabels: data.macrogame.config.progressShowLabels }}
+                    isLightMode={isLightMode}
+                    textStyles={textStyles}
+                    contentWidth={contentWidth}
+                    contentHeight={contentHeight}
+                    globalGuideStyle={globalGuideStyle}
+                    contentGuideStyle={contentGuideStyle}
+                    structGuideStyle={structGuideStyle}
+                    onAdvance={advanceFromIntro}
+                    isActive={true}
+                    showLayoutGuides={false}
+                    theme={data.macrogame.globalStyling?.theme || 'dark'}
+                    altText="Intro Spotlight"
+                    defaultButtonText="Start"
+                />
+            );
+        }
+        case 'promo': {
+            return (
+                <CanvasScreenRenderer 
+                    config={{ ...data.macrogame.promoScreen, hasProgressTracker: data.macrogame.config.showProgress, hasProgressLabels: data.macrogame.config.progressShowLabels }}
+                    isLightMode={isLightMode}
+                    textStyles={textStyles}
+                    contentWidth={contentWidth}
+                    contentHeight={contentHeight}
+                    globalGuideStyle={globalGuideStyle}
+                    contentGuideStyle={contentGuideStyle}
+                    structGuideStyle={structGuideStyle}
+                    onAdvance={advanceFromPromo}
+                    isActive={true}
+                    showLayoutGuides={false}
+                    theme={data.macrogame.globalStyling?.theme || 'dark'}
+                    altText="Promo Spotlight"
+                    defaultButtonText="Continue"
+                />
+            );
         }
         case 'title':
         case 'controls':
         case 'combined': {
-            const activePreGameConfig = (activeGameData as any)?.preGameConfig || data.macrogame.config.preGameConfig || {};
-            const transition = activePreGameConfig.transition || {};
+            const preGame = (activeGameData as any)?.preGameConfig || data.macrogame.config.preGameConfig || {};
+            const transition = preGame.transition || {};
             const isAuto = (transition.type || 'interact') === 'auto';
             const interactionMethod = transition.interactionMethod || 'click';
             const clickFormat = transition.clickFormat || 'disclaimer';
             const isButton = !isAuto && interactionMethod === 'click' && clickFormat === 'button';
             const canClickAnywhere = !isAuto && !isButton;
 
-            // Optional 3-tier layout guides for deep debugging in prod
-            const globalGuideStyle: React.CSSProperties = data.showLayoutGuides ? { outline: '2px solid rgba(255, 0, 0, 0.8)', outlineOffset: '-2px' } : {};
-            const contentGuideStyle: React.CSSProperties = data.showLayoutGuides ? { outline: '2px dotted rgba(255, 193, 7, 0.9)', outlineOffset: '-2px', backgroundColor: 'rgba(255, 193, 7, 0.15)', boxSizing: 'border-box' } : {};
-
             return (
-                <div 
-                    style={textStyles} 
-                    onClick={canClickAnywhere ? advancePreGame : undefined}
-                >
-                    {/* LAYER 3: Global Safe Area (Red Box) - STRICT HEIGHT */}
-                    <div style={{ 
-                        width: `${contentWidth}%`, 
-                        height: `${contentHeight}%`, 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        boxSizing: 'border-box',
-                        color: data.macrogame.globalStyling?.theme === 'light' ? '#333333' : '#ffffff',
-                        textShadow: data.macrogame.globalStyling?.theme === 'light' ? 'none' : '2px 2px 4px rgba(0,0,0,0.6)',
-                        cursor: canClickAnywhere ? 'pointer' : 'default',
-                        ...globalGuideStyle
-                    }}>
-                        
-                        {/* PADDING WRAPPER */}
-                        <div style={{
-                            flex: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            paddingTop: `${preGame.paddingTop === '' ? 0 : (preGame.paddingTop ?? 0)}px`,
-                            paddingBottom: `${preGame.paddingBottom === '' ? 0 : (preGame.paddingBottom ?? 0)}px`,
-                            paddingLeft: `${preGame.paddingLeft === '' ? 0 : (preGame.paddingLeft ?? 0)}px`,
-                            paddingRight: `${preGame.paddingRight === '' ? 0 : (preGame.paddingRight ?? 0)}px`,
-                            boxSizing: 'border-box',
-                            minHeight: 0
-                        }}>
-
-                            {/* CONTENT CENTERING WRAPPER (Split Layer Flexbox) */}
-                            <div style={{
-                                flex: 1,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                width: '100%',
-                                minHeight: 0,
-                                ...contentGuideStyle
-                            }}>
-
-                                {/* Top Spacer */}
-                                <div style={{ flex: '1 1 auto', minHeight: activeMacrogame.config.showProgress ? (activeMacrogame.config.progressShowLabels ? 72 : 48) : 0 }}></div>
-
-                                {/* TOP LAYER (TEXT) */}
-                                <div className="custom-scrollbar" style={{
-                                    display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%',
-                                    gap: `${preGame.textSpacing === '' ? 0 : (preGame.textSpacing ?? 16)}px`,
-                                    flex: '0 1 auto', overflowY: 'auto', overflowX: 'hidden', minHeight: 0
-                                }}>
+                <div style={textStyles} onClick={canClickAnywhere ? advancePreGame : undefined}>
+                    <div style={{ width: `${contentWidth}%`, height: `${contentHeight}%`, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', color: data.macrogame.globalStyling?.theme === 'light' ? '#333333' : '#ffffff', textShadow: data.macrogame.globalStyling?.theme === 'light' ? 'none' : '2px 2px 4px rgba(0,0,0,0.6)', cursor: canClickAnywhere ? 'pointer' : 'default' }}>
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', paddingTop: `${preGame.paddingTop === '' ? 0 : (preGame.paddingTop ?? 0)}px`, paddingBottom: `${preGame.paddingBottom === '' ? 0 : (preGame.paddingBottom ?? 0)}px`, paddingLeft: `${preGame.paddingLeft === '' ? 0 : (preGame.paddingLeft ?? 0)}px`, paddingRight: `${preGame.paddingRight === '' ? 0 : (preGame.paddingRight ?? 0)}px`, boxSizing: 'border-box', minHeight: 0 }}>
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', minHeight: 0 }}>
+                                <div style={{ flex: '1 1 auto', minHeight: data.macrogame.config.showProgress ? (data.macrogame.config.progressShowLabels ? 72 : 48) : 0 }}></div>
+                                <div className="custom-scrollbar" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', gap: `${preGame.textSpacing === '' ? 0 : (preGame.textSpacing ?? 16)}px`, flex: '0 1 auto', overflowY: 'auto', overflowX: 'hidden', minHeight: 0, padding: '2px 0' }}>
                                     {preGame.headline && (
                                         <div className="link-content-wrapper ql-editor" style={{ width: '100%', flexShrink: 0 }} dangerouslySetInnerHTML={{ 
-                                            __html: parseGameMergeTags(preGame.headline, activeGameData?.name, activeGameData?.controls) 
+                                            __html: parseGameMergeTags(preGame.headline, activeGameData?.name, activeGameData?.controls, data.targetScore, data.targetRewardName) 
                                         }} />
                                     )}
 
                                     {preGame.bodyText && (
                                         <div className="link-content-wrapper ql-editor" style={{ width: '100%', flexShrink: 0 }} dangerouslySetInnerHTML={{ 
-                                            __html: parseGameMergeTags(preGame.bodyText, activeGameData?.name, activeGameData?.controls) 
+                                            __html: parseGameMergeTags(preGame.bodyText, activeGameData?.name, activeGameData?.controls, data.targetScore, data.targetRewardName) 
                                         }} />
                                     )}
                                 </div>
-
-                                {/* Gap */}
                                 <div style={{ flexShrink: 0, height: `${preGame.blockSpacing === '' ? 0 : (preGame.blockSpacing ?? 32)}px` }} />
-
-                                {/* BOTTOM LAYER (BUTTONS) */}
                                 <div style={{ display: 'flex', flexDirection: 'column', width: '100%', alignItems: 'center', flexShrink: 0 }}>
-                                    <TransitionRenderer 
-                                        transition={transition} 
-                                        onAdvance={advancePreGame} 
-                                        isActive={true} 
-                                        showLayoutGuides={data.showLayoutGuides} 
-                                        theme={data.macrogame.globalStyling?.theme || 'dark'} 
-                                        defaultButtonText="Start"
-                                    />
+                                    <TransitionRenderer transition={transition} onAdvance={advancePreGame} isActive={true} theme={data.macrogame.globalStyling?.theme || 'dark'} defaultButtonText="Start" />
                                 </div>
-
-                                {/* Bottom Spacer */}
                                 <div style={{ flex: '1 1 auto', minHeight: 0 }}></div>
-
                             </div>
                         </div>
                     </div>
                 </div>
             );
         }
-
-        case 'promo': {
-            const promoConfig = data.macrogame.promoScreen as ScreenConfig;
-            const promoBaseStyle: React.CSSProperties = { ...textStyles, ...(promoConfig.backgroundImageUrl && { backgroundImage: `url("${promoConfig.backgroundImageUrl}")` }), ...(!promoConfig.backgroundImageUrl && { backgroundColor: '#1a1a2e' }), ...(promoConfig.clickToContinue && { cursor: 'pointer' }) };
-            
-            const layout = promoConfig.spotlightImageLayout;
-            const contentContainerStyle: React.CSSProperties = { display: 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', gap: '1em' };
-            if (layout === 'left') contentContainerStyle.flexDirection = 'row';
-            if (layout === 'right') contentContainerStyle.flexDirection = 'row-reverse';
-            if (layout === 'top') contentContainerStyle.flexDirection = 'column';
-            if (layout === 'bottom') contentContainerStyle.flexDirection = 'column-reverse';
-
-            const imageStyle: React.CSSProperties = { objectFit: 'cover', borderRadius: '8px', };
-            if (layout === 'left' || layout === 'right') {
-                imageStyle.width = '40%';
-                imageStyle.height = '70%';
-            } else { // top or bottom
-                imageStyle.width = '70%';
-                imageStyle.height = '40%';
-            }
-
-            return (
-                <div style={promoBaseStyle} onClick={promoConfig.clickToContinue ? advanceFromPromo : undefined}>
-                    <div style={contentContainerStyle}>
-                        {promoConfig.spotlightImageUrl && <img src={promoConfig.spotlightImageUrl} style={imageStyle} alt="Promo" />}
-                        <div style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', padding: '1em', borderRadius: '8px' }}>
-                            <h1 style={{ fontSize: '2.2em' }}>{promoConfig.text}</h1>
-                        </div>
-                    </div>
-                    {promoConfig.clickToContinue && ( <p style={{ position: 'absolute', bottom: '1em', fontSize: '1.4em', background: 'rgba(0,0,0,0.7)', padding: '0.5em 0.8em', borderRadius: '5px' }}> Click to continue </p> )}
-                </div>
-            );
-        }
         case 'end': {
-            if (data.macrogame.conversionScreenId) {
-                const screen = data.allConversionScreens.find((s: ConversionScreen) => s.id === data.macrogame.conversionScreenId);
+            // Evaluate active fallback or standard ID
+            const targetScreenId = activeFallbackScreenId || data.macrogame.conversionScreenId;
+            
+            if (targetScreenId) {
+                const screen = data.allConversionScreens.find((s: any) => s.id === targetScreenId);
                 const currentTheme = data.macrogame.globalStyling?.theme || 'dark';
                 return screen ? (
                     <ConversionScreenHost 
@@ -241,10 +230,12 @@ const StaticScreen: React.FC<{
                         playScreenTransitionAudio={playScreenTransitionAudio}
                         playTimerTickAudio={playTimerTickAudio}
                         playTimerGoAudio={playTimerGoAudio}
+                        triggerResolutionReplay={triggerResolutionReplay}
+                        hotSwapConversionScreen={hotSwapConversionScreen}
                     />
                 ) : <div style={textStyles}><h2>Game Over!</h2><p>(Error: Configured conversion screen not found)</p></div>;
             }
-            return ( <div style={{...textStyles, justifyContent: 'center' }}> <h2>Game Over!</h2> <p>(No conversion screen was configured)</p> <button onClick={handleRestart} style={{ marginTop: '1.5em', padding: '0.8em', background: '#4CAF50', color: 'white', border: 'none' }}> Play Again </button> </div> );
+            return ( <div style={{...textStyles, justifyContent: 'center' }}> <h2>Game Over!</h2> <p>(No conversion screen was configured)</p> <button onClick={handleRestart} style={{ marginTop: '1.5em', padding: '0.8em', background: '#4CAF50', color: 'white', border: 'none', borderRadius: '4px' }}> Play Again </button> </div> );
         }
         
         default: return null;
@@ -255,7 +246,27 @@ const PreviewHost: React.FC = () => {
     const { macrogames, allConversionScreens, allMicrogames, customMicrogames } = useData();
     useDebouncedResize();
     const gameAreaRef = useRef<HTMLDivElement>(null);
-    const [gameAreaFontSize, setGameAreaFontSize] = useState(16);
+    const wrapperRef = useRef<HTMLDivElement>(null);
+    const [scale, setScale] = useState(1);
+    
+    const currentSize = { width: 960, height: 540 }; // Lock to perfectly match the Creator's 16:9 canvas
+    
+    const calculateLayout = useCallback(() => {
+        if (wrapperRef.current) {
+            // Using 0 padding to maximize the standalone window
+            const availableWidth = wrapperRef.current.offsetWidth;
+            const availableHeight = wrapperRef.current.offsetHeight;
+            // Scale dynamically to fit the window perfectly
+            setScale(Math.min(availableWidth / currentSize.width, availableHeight / currentSize.height));
+        }
+    }, [currentSize]);
+
+    useEffect(() => {
+        const observer = new ResizeObserver(calculateLayout);
+        if (wrapperRef.current) observer.observe(wrapperRef.current);
+        calculateLayout();
+        return () => observer.disconnect();
+    }, [calculateLayout]);
     const [previewConfig, setPreviewConfig] = useState<any | null>(null);
     const [activeMacrogame, setActiveMacrogame] = useState<Macrogame | null>(null);
     const [activeSkin, setActiveSkin] = useState<UISkin | null>(null);
@@ -285,6 +296,10 @@ const PreviewHost: React.FC = () => {
     // --- UPDATED Hydration Logic ---
     useEffect(() => {
         if (!previewConfig) return;
+        
+        // IMPORTANT: Wait for the base microgames to load before attempting to hydrate the flow.
+        // If we hydrate before this, the flow will be empty and the game will skip to the end.
+        if (allMicrogames.length === 0) return;
 
         let macrogameToPreview: Macrogame | undefined;
 
@@ -309,8 +324,11 @@ const PreviewHost: React.FC = () => {
             return;
         }
 
+        // --- THE GOLD STANDARD FIX: Deep-merge missing schema properties ---
+        const safeMacrogame = hydrateMacrogame(macrogameToPreview, DEFAULT_MACROGAME_STATE) as Macrogame;
+
         // Hydrate flow with full microgame details
-        const flowWithDetails = macrogameToPreview.flow.map((flowItem: any) => {
+        const flowWithDetails = safeMacrogame.flow.map((flowItem: any) => {
             if (flowItem.baseType) return flowItem; 
             
             const baseGame = allMicrogames.find(mg => mg.id === flowItem.microgameId);
@@ -366,6 +384,12 @@ const PreviewHost: React.FC = () => {
             // it forces all microgames to participate and override their local point settings.
             const isMacroEconomyActive = macrogameToPreview?.config?.showPoints === true;
 
+            const resolveCondition = (flowC: any, varC: any, factC: any) => {
+                if (flowC && Object.keys(flowC).length > 0) return flowC;
+                if (varC && Object.keys(varC).length > 0) return varC;
+                return factC || {};
+            };
+
             const mergedRules = {
                 ...factoryRules,
                 ...variantRules,
@@ -379,8 +403,9 @@ const PreviewHost: React.FC = () => {
                     ...(previewRules.scores || {}),
                     ...(flowItem.pointRules || {}) // Macrogame economy ultimate authority on point values
                 },
-                winCondition: { ...(factoryRules.winCondition || {}), ...(variantRules.winCondition || {}), ...(previewRules.winCondition || {}), ...(flowItem.winCondition || {}) },
-                lossCondition: { ...(factoryRules.lossCondition || {}), ...(variantRules.lossCondition || {}), ...(previewRules.lossCondition || {}), ...(flowItem.lossCondition || {}) }
+                // Use strict overwrite, but safely ignore empty objects that strip defaults
+                winCondition: resolveCondition(flowItem.winCondition, variantRules.winCondition, factoryRules.winCondition),
+                lossCondition: resolveCondition(flowItem.lossCondition, variantRules.lossCondition, factoryRules.lossCondition)
             };
 
             // 3. Resolve Mechanics (Fix for Tiny Player)
@@ -392,15 +417,16 @@ const PreviewHost: React.FC = () => {
 
             const gameName = customVariant ? customVariant.name : baseGame.name;
             
-            const activePreGameConfig = flowItem.preGameConfig || macrogameToPreview.config.preGameConfig;
-            const activeResultConfig = flowItem.resultConfig || macrogameToPreview.config.resultConfig;
+            const activePreGameConfig = flowItem.preGameConfig || safeMacrogame.config.preGameConfig;
+            const activeResultConfig = flowItem.resultConfig || safeMacrogame.config.resultConfig;
 
             return { 
                 ...baseGame, 
                 ...flowItem, 
+                id: baseGame.id, // ENFORCE base game ID to prevent registry lookup failures
                 name: gameName,
                 customSkinData,
-                rules: mergedRules, 
+                rules: mergedRules,
                 mechanics: mergedMechanics,
                 preGameConfig: activePreGameConfig,
                 resultConfig: activeResultConfig,
@@ -409,12 +435,23 @@ const PreviewHost: React.FC = () => {
             };
         }).filter(Boolean);
 
-        const hydratedMacrogame = { ...macrogameToPreview, flow: flowWithDetails as any[] };
+        const hydratedMacrogame = { ...safeMacrogame, flow: flowWithDetails as any[] };
 
         // Preload Assets
         const gameIdsToPreload = flowWithDetails.map(g => g.id);
         const imageUrlsToPreload: string[] = [];
         if (hydratedMacrogame.introScreen.backgroundImageUrl) imageUrlsToPreload.push(hydratedMacrogame.introScreen.backgroundImageUrl);
+        
+        // Deeply scan and preload custom variant skins to ensure visuals render instantly
+        flowWithDetails.forEach((g: any) => {
+            if (g.customSkinData) {
+                Object.values(g.customSkinData).forEach((skinItem: any) => {
+                    if (skinItem && skinItem.url && skinItem.url !== '' && !skinItem.url.startsWith('blob:')) {
+                        imageUrlsToPreload.push(skinItem.url);
+                    }
+                });
+            }
+        });
         
         Promise.all([preloadMicrogames(gameIdsToPreload), preloadImages(imageUrlsToPreload)])
             .then(() => {
@@ -432,16 +469,16 @@ const PreviewHost: React.FC = () => {
     const hasStarted = useRef(false);
     useEffect(() => {
         if (activeMacrogame && !isLoading && !hasStarted.current) {
-            if (previewConfig?.isPreviewMode === 'single_game') {
-                engine.setMode('simulation');
-            }
+            // A standalone preview must ALWAYS run in simulation mode 
+            // so it auto-advances exactly like a real player.
+            engine.setMode('simulation');
             engine.start();
             hasStarted.current = true;
         }
     }, [activeMacrogame, isLoading, engine, previewConfig]);
     
     const handleRestart = useCallback(() => { 
-        hasStarted.current = false; 
+        // Do NOT reset hasStarted.current here to prevent double-firing engine.start()
         engine.start(); 
         setHudState({ lives: null, maxLives: null, goalCurrent: null, goalTarget: null, timerProgress: 100 });
         setRunId(c => c + 1); 
@@ -452,27 +489,20 @@ const PreviewHost: React.FC = () => {
         setHudState(prev => ({ ...prev, ...payload }));
     }, []);
 
-    useLayoutEffect(() => {
-        const calculateFontSize = () => {
-            if (gameAreaRef.current) {
-                // Base the font size on the container's width. 
-                // The number 50 is a "magic number" that can be tweaked, but it's a good starting point.
-                const newSize = gameAreaRef.current.clientWidth / 50;
-                setGameAreaFontSize(newSize);
-            }
-        };
-
-        // Calculate on initial render and on window resize
-        calculateFontSize();
-        window.addEventListener('resize', calculateFontSize);
-        return () => window.removeEventListener('resize', calculateFontSize);
-    }, [activeMacrogame]); // Rerun if the macrogame changes
-
     // --- CHECK: Should we show the Game View? ---
     const showGameView = ['game', 'result'].includes(engine.view) && !!engine.activeGameData;
 
     // --- DERIVE CONTENT SCALING ---
     const linkedScreen = allConversionScreens.find((s: ConversionScreen) => s.id === activeMacrogame?.conversionScreenId);
+    
+    // --- UPSTREAM VISIBILITY ---
+    const rawTargetId = activeMacrogame?.config?.conversionScreenConfig?.targetRewardInstanceId;
+    const targetRewardInstanceId = React.useMemo(() => getResolvedTargetInstanceId(rawTargetId, linkedScreen?.methods, activeMacrogame?.pointCosts), [rawTargetId, linkedScreen?.methods, activeMacrogame?.pointCosts]);
+    const targetScore = React.useMemo(() => getEffectiveTargetCost(targetRewardInstanceId, linkedScreen?.methods, activeMacrogame?.pointCosts), [targetRewardInstanceId, linkedScreen?.methods, activeMacrogame?.pointCosts]);
+    
+    const nameOverride = activeMacrogame?.config?.conversionScreenConfig?.targetRewardNameOverride;
+    const targetRewardName = React.useMemo(() => getTargetRewardName(targetRewardInstanceId, linkedScreen?.methods, allConversionMethods, nameOverride), [targetRewardInstanceId, linkedScreen?.methods, allConversionMethods, nameOverride]);
+
     // The Macrogame's global styling is the absolute source of truth for layout boundaries
     const contentWidth = activeMacrogame?.globalStyling?.width ?? 50;
     const contentHeight = activeMacrogame?.globalStyling?.height ?? 100;
@@ -499,7 +529,7 @@ const PreviewHost: React.FC = () => {
 
         return (
             <ActiveMicrogame 
-                key={runId} 
+                key={`${engine.gameKey}-${runId}-${engine.currentFlowIndex}-${JSON.stringify(rules)}-${JSON.stringify(mechanics)}`} // <-- FIXED: Deeply tracks rules/mechanics changes to force real-time reboots
                 onEnd={engine.onGameEnd} 
                 onReportEvent={engine.onReportEvent}
                 onUpdateHUD={handleUpdateHUD} 
@@ -510,14 +540,17 @@ const PreviewHost: React.FC = () => {
                 isOverlayVisible={engine.isOverlayVisible} 
                 hideOverlayVisuals={true} 
                 onInteraction={engine.onInteraction}
-                isPlaying={engine.view === 'game' && !engine.isOverlayVisible}
+                isPlaying={engine.view === 'game' && !engine.isOverlayVisible && !engine.result}
             />
         );
     }, [
-        showGameView, // Add dependency
-        ActiveMicrogame, // Add dependency
+        showGameView, 
+        ActiveMicrogame, 
         runId, 
-        engine.activeGameData, // Dependency changed to full object
+        engine.gameKey,
+        engine.currentFlowIndex,
+        engine.result,
+        engine.activeGameData, 
         skinConfig, 
         rules, 
         mechanics,
@@ -547,7 +580,19 @@ const PreviewHost: React.FC = () => {
              return <div className="preview-error"><h2>Error</h2><p>Microgame component not found for ID: {activeGameId}</p></div>;
         }
 
-        const resultType = (engine.result as any)?.type || (engine.result?.win ? 'win' : 'loss');
+        let resultType = 'win';
+        if (engine.result) {
+            if (engine.result.win) {
+                resultType = 'win';
+            } else {
+                if (rules?.lossCondition?.type === 'failure') {
+                    resultType = 'loss';
+                } else {
+                    resultType = (engine.result as any).type || 'loss';
+                }
+            }
+        }
+
         const winType = rules?.winCondition?.type;
         goalLabel = winType === 'quota' ? "Items Caught" : winType === 'score' ? "Points Earned" : undefined;
 
@@ -574,6 +619,8 @@ const PreviewHost: React.FC = () => {
                             type={resultType as any}
                             score={engine.totalScore}
                             showScore={rules.enablePoints && rules.showScore}
+                            targetScore={targetScore}
+                            targetRewardName={targetRewardName}
                             onContinue={previewConfig?.isPreviewMode === 'single_game' ? handleRestart : engine.continueFlow}
                             onRetry={canRetry ? engine.retryCurrentMicrogame : undefined}
                             config={resultConfig}
@@ -583,6 +630,8 @@ const PreviewHost: React.FC = () => {
                             currentGameIndex={engine.currentFlowIndex}
                             isStandAlone={isStandAloneResult}
                             playScoreTallyAudio={engine.playScoreTallyAudio}
+                            contentWidth={contentWidth}
+                            contentHeight={contentHeight}
                         />
                     );
                 })()}
@@ -602,7 +651,10 @@ const PreviewHost: React.FC = () => {
             isPreviewMode: previewConfig?.isPreviewMode,
             allConversionScreens: allConversionScreens,
             finalConversionWidth,
-            contentHeight
+            contentHeight,
+            contentWidth,
+            targetScore,
+            targetRewardName
         };
         // Rely on the engine spread (...engine) to natively pass advancePreGame and seamlessly transition the flow
         content = <StaticScreen {...engine} data={dataForStaticScreen} handleRestart={handleRestart} totalScore={engine.totalScore} pointCosts={activeMacrogame.pointCosts || {}} redeemPoints={engine.redeemPoints} playEventAudio={engine.playEventAudio} playClickAudio={engine.playClickAudio} playScreenTransitionAudio={engine.playScreenTransitionAudio} playTimerTickAudio={engine.playTimerTickAudio} playTimerGoAudio={engine.playTimerGoAudio} />;
@@ -613,6 +665,7 @@ const PreviewHost: React.FC = () => {
       isMuted: engine.isMuted,
       onClose: () => window.close(),
       onMute: engine.toggleMute,
+      onRestart: handleRestart,
     };
 
     if (activeSkin.id === 'configurable-popup') {
@@ -624,63 +677,114 @@ const PreviewHost: React.FC = () => {
         skinProps.colorScheme = previewConfig?.container?.colorScheme;
     }
 
+    const fontType = activeMacrogame.globalStyling?.fontType || 'standard';
+    const activeFontFamily = (fontType === 'custom' && activeMacrogame.globalStyling?.customFontUrl)
+        ? "'PreviewCustomFont', sans-serif" 
+        : (activeMacrogame.globalStyling?.fontFamily?.replace(/;/g, '') || 'system-ui, sans-serif');
+
     return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(3px)' }}>
+            {fontType === 'google' && activeMacrogame.globalStyling?.googleFontUrl && (
+                <link href={activeMacrogame.globalStyling.googleFontUrl} rel="stylesheet" />
+            )}
+            
+            <style>{quillCssBlock}</style>
+            <style>{`
+                .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(150, 150, 150, 0.5); border-radius: 10px; }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(150, 150, 150, 0.8); }
+
+                ${(fontType === 'custom' && activeMacrogame.globalStyling?.customFontUrl) ? `
+                    @font-face {
+                        font-family: 'PreviewCustomFont'; 
+                        src: url('${activeMacrogame.globalStyling.customFontUrl}');
+                        font-display: swap;
+                    }
+                ` : ''}
+
+                .ql-editor, .ql-editor p, .ql-editor h1, .ql-editor h2, .ql-editor h3, .ql-editor span {
+                    font-family: ${activeFontFamily} !important;
+                }
+
+                @keyframes pulse {
+                    0% { opacity: 0.6; transform: scale(0.98); }
+                    50% { opacity: 1; transform: scale(1.02); }
+                    100% { opacity: 0.6; transform: scale(0.98); }
+                }
+            `}</style>
+
             <SkinComponent {...skinProps}>
-                {/* Layer 1: Bezel/Frame */}
-                <div 
-                    ref={gameAreaRef} 
-                    style={{ 
-                        width: '100%', 
-                        height: '100%', 
-                        fontSize: gameAreaFontSize,
-                        backgroundColor: activeMacrogame.globalStyling?.theme === 'light' ? '#ffffff' : '#1a1a2e',
-                        paddingTop: activeMacrogame.globalStyling?.paddingTop ?? 0,
-                        paddingBottom: activeMacrogame.globalStyling?.paddingBottom ?? 0,
-                        paddingLeft: activeMacrogame.globalStyling?.paddingLeft ?? 0,
-                        paddingRight: activeMacrogame.globalStyling?.paddingRight ?? 0,
-                        boxSizing: 'border-box',
-                        borderRadius: activeMacrogame.globalStyling?.borderRadius ?? 0
-                    }}
-                >
-                    {/* Layer 2: Inner boundary */}
-                    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', borderRadius: 'inherit' }}>
-                        <UnifiedGameChrome
-                            view={engine.view}
-                            theme={activeMacrogame.globalStyling?.theme}
-                            macroConfig={{
-                                showPoints: activeMacrogame.config.showPoints ?? false,
-                                showProgress: activeMacrogame.config.showProgress ?? false,
-                                progressFormat: (activeMacrogame.config as any).progressFormat || 'visual',
-                                progressShowLabels: (activeMacrogame.config as any).progressShowLabels ?? false,
-                                hasIntro: activeMacrogame.introScreen?.enabled ?? false,
-                                hasPromo: activeMacrogame.promoScreen?.enabled ?? false,
-                                hudLayout: activeMacrogame.globalStyling?.hudLayout,
-                                hudPaddingY: activeMacrogame.globalStyling?.hudPaddingY,
-                                hudPaddingX: activeMacrogame.globalStyling?.hudPaddingX
+                {/* The Scaling Wrapper now lives INSIDE the Skin to isolate scaling to the game canvas */}
+                <div ref={wrapperRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+                    <div style={{
+                        position: 'absolute', top: '50%', left: '50%', 
+                        width: currentSize.width, 
+                        height: currentSize.height,
+                        transform: `translate(-50%, -50%) scale(${scale})`, transformOrigin: 'center center',
+                        display: 'flex', justifyContent: 'center', alignItems: 'center'
+                    }}>
+                        {/* Layer 1: Bezel/Frame */}
+                        <div 
+                            ref={gameAreaRef} 
+                            style={{ 
+                                width: '100%', 
+                                height: '100%', 
+                                fontSize: '16px', // Hardcoded to 16px to prevent font warping inside the scaled box
+                                backgroundColor: activeMacrogame.globalStyling?.theme === 'light' ? '#ffffff' : '#1a1a2e',
+                                fontFamily: activeFontFamily,
+                                paddingTop: activeMacrogame.globalStyling?.paddingTop ?? 0,
+                                paddingBottom: activeMacrogame.globalStyling?.paddingBottom ?? 0,
+                                paddingLeft: activeMacrogame.globalStyling?.paddingLeft ?? 0,
+                                paddingRight: activeMacrogame.globalStyling?.paddingRight ?? 0,
+                                boxSizing: 'border-box',
+                                borderRadius: activeMacrogame.globalStyling?.borderRadius ?? 0
                             }}
-                            currentStep={engine.currentGameIndex}
-                            totalSteps={activeMacrogame.flow.length}
-                            totalScore={engine.totalScore}
-                            progressText={engine.progressText}
-                            microConfig={microConfig}
-                            lives={hudState.lives}
-                            maxLives={hudState.maxLives}
-                            timerProgress={hudState.timerProgress}
-                            goalCurrent={hudState.goalCurrent}
-                            goalTarget={hudState.goalTarget}
-                            goalLabel={goalLabel}
-                            isOverlayVisible={engine.isOverlayVisible}
-                            onStart={engine.onInteraction}
-                            overlayTitle={engine.activeGameData?.name}
-                            overlayControls={engine.activeGameData?.controls}
-                            preGameConfig={activePreGameConfig}
-                            contentWidth={contentWidth}
-                            contentHeight={contentHeight}
-                            showLayoutGuides={false}
                         >
-                            {content}
-                        </UnifiedGameChrome>
+                            {/* Layer 2: Inner boundary */}
+                            <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', borderRadius: 'inherit' }}>
+                                <UnifiedGameChrome
+                                    view={engine.view}
+                                    theme={activeMacrogame.globalStyling?.theme}
+                                    targetScore={targetScore}
+                                    targetRewardName={targetRewardName}
+                                    macroConfig={{
+                                        showPoints: activeMacrogame.config.showPoints ?? false,
+                                        showProgress: activeMacrogame.config.showProgress ?? false,
+                                        progressFormat: (activeMacrogame.config as any).progressFormat || 'visual',
+                                        progressShowLabels: (activeMacrogame.config as any).progressShowLabels ?? false,
+                                        progressStyle: activeMacrogame.config.progressStyle,
+                                        lightProgressStyle: activeMacrogame.config.lightProgressStyle,
+                                        hasIntro: activeMacrogame.introScreen?.enabled ?? false,
+                                        hasPromo: activeMacrogame.promoScreen?.enabled ?? false,
+                                        hudLayout: activeMacrogame.globalStyling?.hudLayout,
+                                        hudPaddingY: activeMacrogame.globalStyling?.hudPaddingY,
+                                        hudPaddingX: activeMacrogame.globalStyling?.hudPaddingX
+                                    }}
+                                    currentStep={engine.currentGameIndex}
+                                    totalSteps={activeMacrogame.flow.length}
+                                    totalScore={engine.totalScore}
+                                    progressText={engine.progressText}
+                                    microConfig={microConfig}
+                                    lives={hudState.lives}
+                                    maxLives={hudState.maxLives}
+                                    timerProgress={hudState.timerProgress}
+                                    goalCurrent={hudState.goalCurrent}
+                                    goalTarget={hudState.goalTarget}
+                                    goalLabel={goalLabel}
+                                    isOverlayVisible={engine.isOverlayVisible}
+                                    onStart={engine.onInteraction}
+                                    overlayTitle={engine.activeGameData?.name}
+                                    overlayControls={engine.activeGameData?.controls}
+                                    preGameConfig={activePreGameConfig}
+                                    contentWidth={contentWidth}
+                                    contentHeight={contentHeight}
+                                    showLayoutGuides={false}
+                                >
+                                    {content}
+                                </UnifiedGameChrome>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </SkinComponent>

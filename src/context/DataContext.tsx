@@ -264,8 +264,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({
     // --- FIX: Implement correct data loading flag ---
     let initialLoadComplete = false;
     let loadCount = 0;
-    // We listen to 6 main collections for the initial load
-    const totalCollections = 6;
+    // We listen to 7 main collections for the initial load
+    const totalCollections = 7;
 
     const handleLoad = () => {
       loadCount++;
@@ -420,10 +420,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({
             } as CustomMicrogame),
         );
         setState({ customMicrogames: data });
-        // This collection is not part of the initial "all loaded"
-        // count because it's not critical for startup.
+        handleLoad(); // <-- CRITICAL: We MUST wait for variants to load to prevent hydration wipes
       },
-      (error) => console.error('Error fetching custom microgames:', error),
+      (error) => {
+        console.error('Error fetching custom microgames:', error);
+        handleLoad();
+      }
     );
     unsubscribers.push(unsubCustomMicrogames);
 

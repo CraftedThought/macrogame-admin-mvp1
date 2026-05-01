@@ -1,19 +1,21 @@
-/* src/components/ui/inputs/SmartNumberInput.tsx */
-
 import React, { useState, useEffect, FocusEvent, ChangeEvent } from 'react';
 
-interface SmartNumberInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
+interface SmartNumberInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value' | 'max' | 'min'> {
     value: number;
     onChange: (newValue: number) => void;
     allowNegative?: boolean;
     fallbackValue?: number;
+    max?: number;
+    min?: number;
 }
 
 export const SmartNumberInput: React.FC<SmartNumberInputProps> = ({ 
     value, 
     onChange, 
     allowNegative = false, 
-    fallbackValue = 0, // Defaults to 0 to preserve standard behavior
+    fallbackValue = 0, 
+    max,
+    min,
     ...props 
 }) => {
     // We keep a local string state to allow for "", "-", "0." etc.
@@ -27,7 +29,7 @@ export const SmartNumberInput: React.FC<SmartNumberInputProps> = ({
         if (currentParsed !== value) {
             setInputValue(String(value));
         }
-    }, [value]);
+    }, [value, inputValue]);
 
     const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
         const raw = e.target.value;
@@ -48,20 +50,38 @@ export const SmartNumberInput: React.FC<SmartNumberInputProps> = ({
         // 3. Handle Valid Numbers
         const regex = allowNegative ? /^-?\d*\.?\d*$/ : /^\d*\.?\d*$/;
         if (regex.test(raw)) {
-            setInputValue(raw);
-            const parsed = Number(raw);
+            let parsed = Number(raw);
             if (!isNaN(parsed)) {
+                // Enforce Max instantly on keystroke
+                if (max !== undefined && parsed > max) {
+                    parsed = max;
+                    setInputValue(String(parsed));
+                    onChange(parsed);
+                    return;
+                }
+
+                setInputValue(raw);
                 onChange(parsed);
             }
         }
     };
 
     const handleBlur = (e: FocusEvent<HTMLInputElement>) => {
-        // On blur, if it's incomplete, force it to the fallback
-        if (inputValue === '' || inputValue === '-') {
-            setInputValue(String(fallbackValue));
-            onChange(fallbackValue);
+        let finalValue = inputValue === '' || inputValue === '-' ? fallbackValue : Number(inputValue);
+        
+        // Enforce Min on blur (allows user to type "2" before typing "5" for 25)
+        if (min !== undefined && finalValue < min) {
+            finalValue = min;
         }
+        
+        // Enforce Max on blur (safety catch)
+        if (max !== undefined && finalValue > max) {
+            finalValue = max;
+        }
+
+        setInputValue(String(finalValue));
+        onChange(finalValue);
+        
         if (props.onBlur) props.onBlur(e);
     };
 
@@ -71,7 +91,9 @@ export const SmartNumberInput: React.FC<SmartNumberInputProps> = ({
             value={inputValue}
             onChange={handleChange}
             onBlur={handleBlur}
-            // --- NEW: Prevent scroll from changing value ---
+            max={max}
+            min={min}
+            // --- Prevent scroll from changing value ---
             onWheel={(e) => e.currentTarget.blur()}
             {...props}
         />
